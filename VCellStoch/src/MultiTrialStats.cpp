@@ -8,15 +8,7 @@
 #include <limits>
 #include <math.h>
 
-#ifdef __APPLE__
-    #if __arm__ || __arm64__
-    #include "/opt/homebrew/opt/hdf5/include/hdf5.h"
-    #else
-    #include "/usr/local/opt/hdf5/include/hdf5.h"
-    #endif
-#else
 #include <hdf5.h>
-#endif
 
 using std::vector;
 using std::string;

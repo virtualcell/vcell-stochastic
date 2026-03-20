@@ -39,3 +39,33 @@
 
 # debug information files
 *.dwo
+
+build/
+cmake-build-debug/
+.idea/
+.vscode/
+.DS_Store
+
+# CMake temporary files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# VCell Stochastic specific temporary files
+ExpressionParser/CMakeFiles/
+ExpressionParser/cmake_install.cmake
+ExpressionParser/Makefile
+ExpressionParser/libExpressionParser.a
+VCellMessaging/CMakeFiles/
+VCellMessaging/cmake_install.cmake
+VCellMessaging/Makefile
+VCellMessaging/libvcellmessaging.a
+VCellMessaging/GitDescribe.cpp
+vcommons/CMakeFiles/
+vcommons/cmake_install.cmake
+vcommons/Makefile
+vcommons/libvcommons.a

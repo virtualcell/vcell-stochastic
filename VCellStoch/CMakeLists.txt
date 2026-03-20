@@ -38,15 +38,8 @@ target_link_libraries(VCellStochLib
     ExpressionParser
     vcommons
     vcellmessaging
+    ${HDF5_LIBRARIES}
 )
-
-# Try to find HDF5 and link if available
-if(HDF5_FOUND)
-    target_link_libraries(VCellStochLib ${HDF5_LIBRARIES})
-else()
-    # Try linking against system hdf5
-    target_link_libraries(VCellStochLib hdf5 hdf5_cpp)
-endif()
 
 # Build standalone executable
 add_executable(VCellStoch ${SRC_MAIN_FILE})

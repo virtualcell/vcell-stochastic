@@ -31,13 +31,20 @@ vcell-stochastic/
 - libcurl (optional, for messaging support)
 
 ### Build Instructions
+#### Configure the build
 
 On Linux/macOS:
 ```bash
-# Configure the build
 cmake -S . -B build
+```
+
+On Windows:
+```bash
+cmake -S . -B build -G "Visual Studio 17 2022"
+```
 
 # Build the project
+```bash
 cmake --build build --config Release
 ```
 

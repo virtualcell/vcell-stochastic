@@ -71,6 +71,11 @@ Configure with testing enabled, then run:
     cmake --build build
     ctest --test-dir build --verbose
 
+##### if macOS has HDF5 library issues:
+
+    % sudo xattr -d com.apple.quarantine /Applications/HDF_Group/HDF5/2.1.0/lib/libhdf5_cpp.320.1.0.dylib
+    % sudo xattr -rd com.apple.quarantine /Applications/HDF_Group/HDF5/2.1.0/lib/
+
 #### Windows (with presets)
 
     cmake --preset windows-msvc-hdf5 -DBUILD_TESTING=ON

@@ -119,19 +119,18 @@ Gibson::Gibson(const char* arg_infilename, const char* arg_outfilename) : Gibson
 				char exp[2000];
 				infile.getline(exp,2000);//get expression string
 				int lenNames=listOfVarNames.size();
-#ifdef _MSC_VER
+// New code
 				vector<string> names(lenNames + 1);
 				for (int k = 0; k < lenNames; k++)
 					names[k] = listOfVarNames.at(k);
 				names[lenNames] = MY_T_STR;
 				listOfProcesses[idx]->setProbabilityExpression(exp, names.data(), (lenNames + 1));
-#else
-				string names[lenNames+1];
-				for (int k=0;k<lenNames;k++)
-					names[k]=listOfVarNames.at(k);
-				names[lenNames]=MY_T_STR;
-				listOfProcesses[idx]->setProbabilityExpression(exp,names,(lenNames+1));
-#endif
+// Original code
+// 				string names[lenNames+1];
+// 				for (int k=0;k<lenNames;k++)
+// 					names[k]=listOfVarNames.at(k);
+// 				names[lenNames]=MY_T_STR;
+// 				listOfProcesses[idx]->setProbabilityExpression(exp,names,(lenNames+1));
 				infile >> str;//"Effect"
 				if(str=="Effect")
 				{
@@ -222,12 +221,11 @@ int Gibson::core()
 {
 	double outputTimer = STARTING_TIME;
 	double simtime = STARTING_TIME;
-#ifdef _MSC_VER
+// New code
 	vector<double> lastStepVals(listOfIniValues.size());
 	vector<double> initialValues(listOfIniValues.size());
-#else
-	double lastStepVals[listOfIniValues.size()];
-#endif
+// Original code
+// 	double lastStepVals[listOfIniValues.size()];
 	double p, r;
 	int saveIntervalCount = SAMPLE_INTERVAL;
 	int iterationCounter=0;
@@ -242,11 +240,10 @@ int Gibson::core()
 		for(int k=0;k<varLen;k++)
 		{
 			currvals[k]=listOfIniValues[k];
-#ifdef _MSC_VER
+// New code
 			lastStepVals[k]=*listOfVars.at(k)->getCurr();
-#else
-			lastStepVals[k]=*listOfVars.at(k)->getCurr();
-#endif
+// Original code
+// 			lastStepVals[k]=*listOfVars.at(k)->getCurr();
 		}
 		currvals[varLen] = simtime;
 		p = jump->getProbabilityRate(currvals);
@@ -272,17 +269,16 @@ int Gibson::core()
 
     if (bMultiButNotHisto) {
         multiTrialStats->startNewTrial();
-#ifdef _MSC_VER
-        std::vector<double> initialValues(listOfIniValues.size());
+// New code
+    	std::vector<double> initialValues(listOfIniValues.size());
         for (int k=0;k<listOfIniValues.size();k++)
             initialValues[k]=listOfIniValues[k];
         multiTrialStats->addSample(0, 0.0, initialValues.data());
-#else
-        double initialValues[listOfIniValues.size()];
-        for (int k=0;k<listOfIniValues.size();k++)
-            initialValues[k]=listOfIniValues[k];
-        multiTrialStats->addSample(0, 0.0, initialValues);
-#endif
+// Original code
+//         double initialValues[listOfIniValues.size()];
+//         for (int k=0;k<listOfIniValues.size();k++)
+//             initialValues[k]=listOfIniValues[k];
+//         multiTrialStats->addSample(0, 0.0, initialValues);
     }
 	//the while loop does one trial for simulation and ends by ending_time.
 	while(simtime < ENDING_TIME)

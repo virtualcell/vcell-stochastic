@@ -26,7 +26,8 @@ public:
     int getNumVars() const { return numVars; }
     int getNumTimePoints() { return timeValues.size(); }
     double getTimePoint(int timeIndex) { return timeValues[timeIndex]; }
-    void writeHDF5(std::string outfilename, vector<string> listOfVarNames);
+    void writeOutput(std::string outfilename, vector<string> listOfVarNames);
+
 private:
     void init();
     int numVars;
@@ -39,6 +40,8 @@ private:
     vector<vector<double> > statMin;
     vector<vector<double> > statMax;
     vector<double> timeValues;
+
+    void writeHDF5(std::string outfilename, vector<string> listOfVarNames);
 };
 
 #endif //NUMERICS_MULTITRIALSTATS_H

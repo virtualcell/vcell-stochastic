@@ -1,7 +1,0 @@
-add_test([=[statstest.test1]=]  /home/cbontempi/projects/vcell-solvers/bin/TestVCellStoch [==[--gtest_filter=statstest.test1]==] --gtest_also_run_disabled_tests)
-set_tests_properties([=[statstest.test1]=]  PROPERTIES WORKING_DIRECTORY /home/cbontempi/projects/vcell-solvers/Stochastic/Tests SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
-add_test([=[multitrialstats_test.test1]=]  /home/cbontempi/projects/vcell-solvers/bin/TestVCellStoch [==[--gtest_filter=multitrialstats_test.test1]==] --gtest_also_run_disabled_tests)
-set_tests_properties([=[multitrialstats_test.test1]=]  PROPERTIES WORKING_DIRECTORY /home/cbontempi/projects/vcell-solvers/Stochastic/Tests SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
-add_test([=[multitrialstats_test.testGaussian]=]  /home/cbontempi/projects/vcell-solvers/bin/TestVCellStoch [==[--gtest_filter=multitrialstats_test.testGaussian]==] --gtest_also_run_disabled_tests)
-set_tests_properties([=[multitrialstats_test.testGaussian]=]  PROPERTIES WORKING_DIRECTORY /home/cbontempi/projects/vcell-solvers/Stochastic/Tests SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
-set(  TestVCellStoch_TESTS statstest.test1 multitrialstats_test.test1 multitrialstats_test.testGaussian)

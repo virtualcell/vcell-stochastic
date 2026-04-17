@@ -1,5 +1,0 @@
-if(EXISTS "/home/cbontempi/projects/vcell-solvers/Stochastic/Tests/TestVCellStoch[1]_tests.cmake")
-  include("/home/cbontempi/projects/vcell-solvers/Stochastic/Tests/TestVCellStoch[1]_tests.cmake")
-else()
-  add_test(TestVCellStoch_NOT_BUILT TestVCellStoch_NOT_BUILT)
-endif()

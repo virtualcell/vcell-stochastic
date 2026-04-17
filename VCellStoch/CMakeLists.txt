@@ -1,55 +1,64 @@
+# Optional messaging dependency
+if(OPTION_TARGET_MESSAGING)
+    find_package(CURL REQUIRED)
+endif()
+
+# Optional Python binding dependencies
+if(OPTION_BUILD_PYTHON_BINDINGS)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+    find_package(pybind11 CONFIG REQUIRED)
+endif()
+
 cmake_minimum_required(VERSION 3.10)
-project(VCellStoch)
+project(VCellStoch LANGUAGES CXX)
 
-# Source files for the library
 set(LIB_SRC_FILES
-    src/Gibson.cpp
-    src/IndexedTree.cpp
-    src/Jump.cpp
-    src/StochModel.cpp
-    src/StochVar.cpp
-    src/MultiTrialStats.cpp
+        src/Gibson.cpp
+        src/IndexedTree.cpp
+        src/Jump.cpp
+        src/StochModel.cpp
+        src/StochVar.cpp
+        src/MultiTrialStats.cpp
 )
 
-# Header files
 set(HEADER_FILES
-    include/Gibson.h
-    include/IndexedTree.h
-    include/Jump.h
-    include/StochModel.h
-    include/StochVar.h
-    include/MultiTrialStats.h
+        include/Gibson.h
+        include/IndexedTree.h
+        include/Jump.h
+        include/StochModel.h
+        include/StochVar.h
+        include/MultiTrialStats.h
 )
 
-# Main executable source
 set(SRC_MAIN_FILE src/VCellStoch.cpp)
 
-# Build static library
 add_library(VCellStochLib STATIC ${LIB_SRC_FILES} ${HEADER_FILES})
 
-# Include directories for the library
-target_include_directories(VCellStochLib PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+target_include_directories(VCellStochLib
+        PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
 )
 
-# Link dependencies
+# HDF5 for multi-trial output
+target_compile_definitions(VCellStochLib PUBLIC USE_HDF5=1)
+target_link_libraries(VCellStochLib PUBLIC ${HDF5_LIBRARIES})
+target_include_directories(VCellStochLib PUBLIC ${HDF5_INCLUDE_DIRS})
+
 target_link_libraries(VCellStochLib
-    ExpressionParser
-    vcommons
-    vcellmessaging
-    ${HDF5_LIBRARIES}
+        PUBLIC
+        ExpressionParser
+        vcommons
+        vcellmessaging
 )
 
-# Build standalone executable
 add_executable(VCellStoch ${SRC_MAIN_FILE})
-target_link_libraries(VCellStoch VCellStochLib)
+target_link_libraries(VCellStoch PRIVATE VCellStochLib)
 
-# Installation rules
 install(TARGETS VCellStochLib VCellStoch
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
 )
 
 install(FILES ${HEADER_FILES} DESTINATION include/VCellStoch)

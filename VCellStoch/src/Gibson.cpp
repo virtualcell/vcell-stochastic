@@ -113,21 +113,25 @@ Gibson::Gibson(const char* arg_infilename, const char* arg_outfilename) : Gibson
 			string name,str;
 			for(int i=0;i<dCount;i++){ //loop through each process description
 				infile >> name >> name;// "process name"
-				//find the process in listOfProcesses using it's name
 				idx=getProcessIndex(name);
-				//set the process name index, so that we get find its name later.
 				listOfProcesses[idx]->setNameIndex(idx);
 				infile >> str;// "Propensity"
-				//read expression from fstream
 				char exp[2000];
 				infile.getline(exp,2000);//get expression string
-				//bind probExpression with symboltable including variables and "t"(put at last)
 				int lenNames=listOfVarNames.size();
+#ifdef _MSC_VER
+				vector<string> names(lenNames + 1);
+				for (int k = 0; k < lenNames; k++)
+					names[k] = listOfVarNames.at(k);
+				names[lenNames] = MY_T_STR;
+				listOfProcesses[idx]->setProbabilityExpression(exp, names.data(), (lenNames + 1));
+#else
 				string names[lenNames+1];
 				for (int k=0;k<lenNames;k++)
 					names[k]=listOfVarNames.at(k);
 				names[lenNames]=MY_T_STR;
 				listOfProcesses[idx]->setProbabilityExpression(exp,names,(lenNames+1));
+#endif
 				infile >> str;//"Effect"
 				if(str=="Effect")
 				{
@@ -146,7 +150,6 @@ Gibson::Gibson(const char* arg_infilename, const char* arg_outfilename) : Gibson
 						listOfProcesses[idx]->addVarContext(temp);
 					}
 				}
-				//set up dependency
 				infile >> str;//"DependentProcesses"
 				if(str=="DependentProcesses")
 				{
@@ -160,15 +163,15 @@ Gibson::Gibson(const char* arg_infilename, const char* arg_outfilename) : Gibson
 						listOfProcesses[idx]->addDependentJump(listOfProcesses[idx3]);
 					}
 				}
-			}//end of for loop for process description
+			}
 		}
 	}
-    //setup IndexedTree
 	Tree = new IndexedTree();
 	for(auto & listOfProcesse : listOfProcesses){
 		Tree->addProcess(listOfProcesse);
 	}
 	infile.close();
+
 	if (NUM_TRIAL > MAX_ALLOWED_POINTS) {
 		VCELL_EXCEPTION(invalid_argument,"Stochastic initialization: Server maximum number trials " << NUM_TRIAL << " exceeds limit of " << MAX_ALLOWED_POINTS);
 	}
@@ -177,53 +180,14 @@ Gibson::Gibson(const char* arg_infilename, const char* arg_outfilename) : Gibson
 	}
 
 	if(NUM_TRIAL > 1 && !bMultiButNotHisto){
-		//this must be a gibson 'histogram' sim,
-		//java gui not allow setting of MAX_SAVE_POINTS and default is too low
-		//makes no sense for 'histogram' sim to have MAX_SAVE_POINTS < NUM_TRIAL
 		MAX_SAVE_POINTS = NUM_TRIAL;
 	}
 
-	//initialization of the double array currvals
 	currvals=new double[listOfIniValues.size()+1];
     if (bMultiButNotHisto){
         this->multiTrialStats = new MultiTrialStats(listOfVars.size(), MAX_SAVE_POINTS);
     }
-#ifdef DEBUG
-	cout << "-------------------control information----------------"<<endl;
-	cout << "starting time:"<<STARTING_TIME <<endl;
-	cout << "ending time:"<< ENDING_TIME <<endl;
-	cout << "save period:"<< SAVE_PERIOD <<endl;
-	cout << "max iteration:"<< MAX_ITERATION <<endl;
-	cout << "tolerance:"<< TOLERANCE <<endl;
-	cout << "number of trial:"<< NUM_TRIAL <<endl;
-	cout << "------------------model information------------------"<<endl;
-	cout << "size of vars:" << listOfVars.size() << endl <<endl;
-	for (int k=0;k<listOfVarNames.size();k++)
-		cout << "Var No."<<k<<" name is:"<< listOfVarNames.at(k)<<endl;
-	for (int k=0;k<listOfVars.size();k++)
-		cout << "Var No."<<k<<" value is:"<< *listOfVars.at(k)->getCurr()<<endl;
-	for (int k=0;k<listOfIniValues.size();k++)
-		cout << "Var No."<<k<<" Ini value is:"<< listOfIniValues.at(k)<<endl<<endl;
-	cout << "size of processes:" << listOfProcesses.size() << endl << endl;
-	for (int k=0;k<listOfProcessNames.size();k++)
-		cout << "Process No."<<k<<" name is:"<< listOfProcessNames.at(k)<<endl;
-	int lenVars = listOfIniValues.size();
-	for(int k=0;k<lenVars;k++)
-	{
-		currvals[k]=listOfIniValues[k];
-	}
-	currvals[lenVars] = STARTING_TIME; //starting point
-	for (int k=0;k<listOfProcesses.size();k++)
-	{
-		listOfProcesses.at(k)->getProbabilityRate(currvals);
-		cout << "Propensity is:" << listOfProcesses.at(k)->getOldProbabilityRate()<<endl;
-	}
-	for (int k=0;k<listOfProcesses.size();k++)
-		cout << "Process No." <<k<<" varContext size is:" << listOfProcesses.at(k)->getNumVars()<<endl;
-	for (int k=0;k<listOfProcesses.size();k++)
-		cout << "Process No." <<k<<" dependentProcess size is:" << listOfProcesses.at(k)->getNumDependentJumps()<<endl;
-#endif
-}// end of constructor Gibson(infilename,outfilename)
+}
 
 //Destructor
 Gibson::~Gibson()
@@ -256,35 +220,40 @@ Gibson::~Gibson()
  */
 int Gibson::core()
 {
-	double outputTimer = STARTING_TIME;//time counter used for save output by save_period
-	double simtime = STARTING_TIME;//time calculated for next reaction
-	double lastStepVals[listOfIniValues.size()];//to remember the last step values, used for save output by save_period
-	double p, r; //temp variables used for probability and random number
-	int saveIntervalCount = SAMPLE_INTERVAL; //sampling counter, for default output time spec, keep every
-	int iterationCounter=0;//counter used for termination of the loop when max_iteration is reached
-	int i; //loop variable
-	int varLen = listOfIniValues.size(); //variables' length
-	//reset the indexed tree
+	double outputTimer = STARTING_TIME;
+	double simtime = STARTING_TIME;
+#ifdef _MSC_VER
+	vector<double> lastStepVals(listOfIniValues.size());
+	vector<double> initialValues(listOfIniValues.size());
+#else
+	double lastStepVals[listOfIniValues.size()];
+#endif
+	double p, r;
+	int saveIntervalCount = SAMPLE_INTERVAL;
+	int iterationCounter=0;
+	int i;
+	int varLen = listOfIniValues.size();
+
 	for(i=0;i<Tree->getSize();i++)
 	{
 		Jump *jump = Tree->getProcess(i);
 		jump->setNode(i);
 
-		//get current values for evaluating the probability expression & also reset last setp values
 		for(int k=0;k<varLen;k++)
 		{
 			currvals[k]=listOfIniValues[k];
+#ifdef _MSC_VER
 			lastStepVals[k]=*listOfVars.at(k)->getCurr();
+#else
+			lastStepVals[k]=*listOfVars.at(k)->getCurr();
+#endif
 		}
 		currvals[varLen] = simtime;
 		p = jump->getProbabilityRate(currvals);
-		//amended Oct 11th, 2007. Stop the simulation and send error message back if
-		//anyone of the propensity functions is negative.
+
 		if(p < 0){
 			VCELL_EXCEPTION(runtime_error,"at time point " << simtime << ", propensity of jump process "<< listOfProcessNames.at(jump->getNameIndex()) <<" evaluated to a negative value (" << p << "). Simulation abort!" << endl << jump->getProbabilityRateEvaluationSummary(currvals) );
 		}
-		//amended May 17th,2007 we can not take the first time random number to be 0.
-		//Otherwise, there is a situation that no previous random number to be reused.
 		do
 		{
 			r = getRandomUniform();
@@ -297,17 +266,23 @@ int Gibson::core()
 		else{
 			jump->setTime(jump->getLogRand()/p);
 		}
-#ifdef DEBUG
-		cout<<"Initial r & P:" << r <<"\t" <<p <<endl;
-#endif
 	}
+
 	Tree->build();
+
     if (bMultiButNotHisto) {
         multiTrialStats->startNewTrial();
+#ifdef _MSC_VER
+        std::vector<double> initialValues(listOfIniValues.size());
+        for (int k=0;k<listOfIniValues.size();k++)
+            initialValues[k]=listOfIniValues[k];
+        multiTrialStats->addSample(0, 0.0, initialValues.data());
+#else
         double initialValues[listOfIniValues.size()];
         for (int k=0;k<listOfIniValues.size();k++)
             initialValues[k]=listOfIniValues[k];
         multiTrialStats->addSample(0, 0.0, initialValues);
+#endif
     }
 	//the while loop does one trial for simulation and ends by ending_time.
 	while(simtime < ENDING_TIME)
@@ -334,7 +309,7 @@ int Gibson::core()
 				while((outputTimer+SAVE_PERIOD+EPSILON) < ENDING_TIME)
 				{
                     if(bMultiButNotHisto) {//Accumulate data mode
-                        multiTrialStats->addSample(savedSampleCount, outputTimer + SAVE_PERIOD, lastStepVals);
+                        multiTrialStats->addSample(savedSampleCount, outputTimer + SAVE_PERIOD, lastStepVals.data());
                     }else {
                         accumOrSaveInit(varLen, outputTimer + SAVE_PERIOD, true);
                         for (i = 0; i < varLen; i++) {
@@ -428,7 +403,7 @@ int Gibson::core()
 					while((outputTimer+SAVE_PERIOD) < simtime)
 					{
                         if(bMultiButNotHisto) {//Accumulate data mode
-                            multiTrialStats->addSample(savedSampleCount, outputTimer + SAVE_PERIOD, lastStepVals);
+                            multiTrialStats->addSample(savedSampleCount, outputTimer + SAVE_PERIOD, lastStepVals.data());
                         }else {
                             accumOrSaveInit(varLen, outputTimer + SAVE_PERIOD, true);
                             for (i = 0; i < varLen; i++) {
@@ -471,7 +446,7 @@ int Gibson::core()
 	if((simtime > ENDING_TIME) && (NUM_TRIAL == 1) && (flag_savePeriod))//SingleTrajectory_OutputInterval
 	{
         if(bMultiButNotHisto) {//Accumulate data mode
-            multiTrialStats->addSample(savedSampleCount, ENDING_TIME, lastStepVals);
+            multiTrialStats->addSample(savedSampleCount, ENDING_TIME, lastStepVals.data());
         }else {
             accumOrSaveInit(listOfVars.size(), ENDING_TIME, false);
             for (i = 0; i < listOfVars.size(); i++) {
@@ -627,7 +602,7 @@ void Gibson::march(){
             this->outfile << endl;
         }
 
-        this->multiTrialStats->writeHDF5(this->outfilename, this->listOfVarNames);
+        this->multiTrialStats->writeOutput(this->outfilename, this->listOfVarNames);
 
     } else if(this->NUM_TRIAL==1){
         this->generator->seed(this->SEED);

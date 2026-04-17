@@ -627,7 +627,7 @@ double ASTFuncNode::evaluate(int evalType, double* values)
 					throw RuntimeException("j1() expects 1 argument");
 				}
 				double argument = child0->evaluate(evalType, values);
-				result = j1(argument);
+//				result = j1(argument);
 				break;
 			}
 		default :

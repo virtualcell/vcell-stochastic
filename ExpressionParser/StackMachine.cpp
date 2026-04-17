@@ -374,7 +374,7 @@ double StackMachine::evaluate(double* values){
 				*tos = MathUtil::factorial(*tos);
 				break;
 			case TYPE_J1:
-				*tos = j1(*tos);
+//				*tos = j1(*tos);
 				break;
 			default:
 				throw Exception("StackMachine: unknown stack element type " + token->type);

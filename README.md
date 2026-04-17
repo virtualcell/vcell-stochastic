@@ -55,12 +55,7 @@ The build produces:
 ### Build Options
 
 - BUILD_SHARED_LIBS: Build shared libraries instead of static (default: OFF)
-- BUILD_TESTING: Enable smoke tests (default: OFF)
-
-Example with messaging enabled:
-
-    cmake -S . -B build -DOPTION_TARGET_MESSAGING=ON
-    cmake --build build --config Release
+- BUILD_TESTING: Enable smoke tests (default: ON)
 
 ## Testing
 

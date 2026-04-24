@@ -58,7 +58,7 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Configure (Windows) using vcpkg toolchain (convert paths to forward slashes)
+      - name: Configure (Windows) using vcpkg toolchain (convert paths to forward slashes and pass HDF5 hints)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
@@ -94,13 +94,20 @@ jobs:
             Get-Content (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake') | ForEach-Object { Write-Host $_ }
           }
 
-          # Configure CMake with vcpkg toolchain and forward-slash paths to avoid CMake escape issues.
+          # Provide CMAKE_PREFIX_PATH so config packages under the vcpkg prefix are found,
+          # and pass explicit module-mode hints (include dir + library) to FindHDF5 if needed.
+          $hdf5LibFile = "$hdf5LibUnix/hdf5.lib"
+          Write-Host "Passing HDF5_LIBRARY hint: $hdf5LibFile"
+
           cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" `
             -DVCPKG_TARGET_TRIPLET="x64-windows" `
+            -DCMAKE_PREFIX_PATH="$instPrefixUnix" `
             -DHDF5_ROOT="$instPrefixUnix" `
             -DHDF5_DIR="$hdf5ShareUnix" `
-            -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix"
+            -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" `
+            -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" `
+            -DHDF5_LIBRARY="$hdf5LibFile"
 
       - name: Build (non-Windows)
         if: matrix.os != 'windows-latest'

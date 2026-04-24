@@ -1,12 +1,3 @@
-# Build & release workflow for vcell-stochastic
-# Triggers:
-#  - push tags starting with "v*" (e.g. v1.2.3)
-#  - manual workflow_dispatch (pass `tag` input to name the release)
-#
-# Notes:
-#  - The workflow uses the default GITHUB_TOKEN to create releases.
-#  - On Windows the job uses vcpkg to install HDF5; adjust if you prefer the repo's presets.
-#  - If your repo includes CMake presets for Windows (windows-msvc-hdf5), consider replacing the Windows configure/build steps to use cmake --preset windows-msvc-hdf5.
 name: Build and Release VCell Stochastic
 
 on:
@@ -53,13 +44,13 @@ jobs:
         shell: powershell
         run: |
           choco install -y 7zip
-          Write-Host "Cloning vcpkg into $env:RUNNER_TEMP\\vcpkg"
-          git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\\vcpkg"
-          & "$env:RUNNER_TEMP\\vcpkg\\bootstrap-vcpkg.bat"
-          $vcpkgExe = "$env:RUNNER_TEMP\\vcpkg\\vcpkg.exe"
+          Write-Host "Cloning vcpkg into $env:RUNNER_TEMP\vcpkg"
+          git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
+          & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
+          $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
           & $vcpkgExe install hdf5:x64-windows
-          echo "VCPKG_ROOT=$env:RUNNER_TEMP\\vcpkg" >> $env:GITHUB_ENV
-          echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\\vcpkg\\installed" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\vcpkg\installed" >> $env:GITHUB_ENV
 
       - name: Configure (non-Windows)
         if: matrix.os != 'windows-latest'
@@ -71,13 +62,27 @@ jobs:
         shell: powershell
         run: |
           $vcpkgRoot = $env:VCPKG_ROOT
+          $vcpkgInstalled = Join-Path $vcpkgRoot 'installed'
+          $instPrefix = Join-Path $vcpkgInstalled 'x64-windows'
           $vcpkgToolchain = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
+          $hdf5Share = Join-Path $instPrefix 'share\hdf5'
+          $hdf5Include = Join-Path $instPrefix 'include'
+          $hdf5Lib = Join-Path $instPrefix 'lib'
           Write-Host "Using vcpkg toolchain: $vcpkgToolchain"
+          Write-Host "vcpkg installed prefix: $instPrefix"
           if (-not (Test-Path $vcpkgToolchain)) {
             Write-Error "vcpkg toolchain not found at: $vcpkgToolchain"
             Exit 1
           }
-          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows"
+          Write-Host "Listing vcpkg installed hdf5-related files:"
+          if (Test-Path $hdf5Share) { Get-ChildItem -Path $hdf5Share -Recurse | Select-Object FullName,Length | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Share" }
+          if (Test-Path $hdf5Include) { Get-ChildItem -Path $hdf5Include -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Include" }
+          if (Test-Path $hdf5Lib) { Get-ChildItem -Path $hdf5Lib -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Lib" }
+          if (Test-Path (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake')) {
+            Write-Host "vcpkg-cmake-wrapper.cmake contents:"
+            Get-Content (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake') | ForEach-Object { Write-Host $_ }
+          }
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows" -DHDF5_ROOT="$instPrefix" -DHDF5_DIR="$hdf5Share" -DHDF5_INCLUDE_DIRS="$hdf5Include"
 
       - name: Build (non-Windows)
         if: matrix.os != 'windows-latest'
@@ -97,14 +102,13 @@ jobs:
             ctest --test-dir build --verbose || true
           fi
 
-      - name: Collect build outputs
+      - name: Collect build outputs (non-Windows)
+        if: matrix.os != 'windows-latest'
         run: |
           mkdir -p artifacts
-          # copy bin outputs if present
           if [ -d build/bin ]; then
             cp -r build/bin artifacts/ || true
           fi
-        if: matrix.os != 'windows-latest'
 
       - name: Collect build outputs (Windows)
         if: matrix.os == 'windows-latest'
@@ -128,7 +132,6 @@ jobs:
           if (Test-Path artifacts) {
             Compress-Archive -Path artifacts\* -DestinationPath $out -Force
           } else {
-            # produce an empty zip placeholder if nothing built
             New-Item -Path $out -ItemType File | Out-Null
           }
 

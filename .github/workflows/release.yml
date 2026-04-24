@@ -48,40 +48,36 @@ jobs:
           brew update
           brew install cmake hdf5 zip
 
-      - name: Set up environment - Windows
+      - name: Set up build environment (Windows) and install vcpkg
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
           choco install -y 7zip
-          # Install vcpkg in RUNNER_TEMP and bootstrap; use it to install hdf5
-          git clone https://github.com/microsoft/vcpkg.git $env:RUNNER_TEMP\vcpkg
-          & $env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat
-          $vcpkg = "$env:RUNNER_TEMP\\vcpkg\\vcpkg.exe"
-          & $vcpkg install hdf5:x64-windows
+          Write-Host "Cloning vcpkg into $env:RUNNER_TEMP\\vcpkg"
+          git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\\vcpkg"
+          & "$env:RUNNER_TEMP\\vcpkg\\bootstrap-vcpkg.bat"
+          $vcpkgExe = "$env:RUNNER_TEMP\\vcpkg\\vcpkg.exe"
+          & $vcpkgExe install hdf5:x64-windows
           echo "VCPKG_ROOT=$env:RUNNER_TEMP\\vcpkg" >> $env:GITHUB_ENV
           echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\\vcpkg\\installed" >> $env:GITHUB_ENV
 
-      - name: Configure (Windows) using vcpkg toolchain
-        if: matrix.os == 'windows-latest'
-        shell: powershell
-        run: |
-          $vcpkg_toolchain = "${{ env.RUNNER_TEMP }}\vcpkg\scripts\buildsystems\vcpkg.cmake"
-          $hdf5root = "${{ env.RUNNER_TEMP }}\vcpkg\installed\x64-windows"
-          Write-Host "Using vcpkg toolchain: $vcpkg_toolchain"
-          # Configure CMake explicitly with the vcpkg toolchain file and target triplet
-          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkg_toolchain" -DVCPKG_TARGET_TRIPLET="x64-windows" -DHDF5_ROOT="$hdf5root"
       - name: Configure (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Configure (Windows)
+      - name: Configure (Windows) using vcpkg toolchain
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          $hdf5root = "${{ env.RUNNER_TEMP }}\vcpkg\installed\x64-windows"
-          # If your repo provides a preset (windows-msvc-hdf5) you can use it instead.
-          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DHDF5_ROOT="$hdf5root"
+          $vcpkgRoot = $env:VCPKG_ROOT
+          $vcpkgToolchain = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
+          Write-Host "Using vcpkg toolchain: $vcpkgToolchain"
+          if (-not (Test-Path $vcpkgToolchain)) {
+            Write-Error "vcpkg toolchain not found at: $vcpkgToolchain"
+            Exit 1
+          }
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows"
 
       - name: Build (non-Windows)
         if: matrix.os != 'windows-latest'

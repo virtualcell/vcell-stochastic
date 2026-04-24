@@ -61,6 +61,15 @@ jobs:
           echo "VCPKG_ROOT=$env:RUNNER_TEMP\\vcpkg" >> $env:GITHUB_ENV
           echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\\vcpkg\\installed" >> $env:GITHUB_ENV
 
+      - name: Configure (Windows) using vcpkg toolchain
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $vcpkg_toolchain = "${{ env.RUNNER_TEMP }}\vcpkg\scripts\buildsystems\vcpkg.cmake"
+          $hdf5root = "${{ env.RUNNER_TEMP }}\vcpkg\installed\x64-windows"
+          Write-Host "Using vcpkg toolchain: $vcpkg_toolchain"
+          # Configure CMake explicitly with the vcpkg toolchain file and target triplet
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkg_toolchain" -DVCPKG_TARGET_TRIPLET="x64-windows" -DHDF5_ROOT="$hdf5root"
       - name: Configure (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |

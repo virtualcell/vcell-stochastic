@@ -48,16 +48,17 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
+          # install base hdf5 port; add features if your project needs them (e.g. hdf5[cxx])
           & $vcpkgExe install hdf5:x64-windows
-          echo "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg" >> $env:GITHUB_ENV
-          echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\vcpkg\installed" >> $env:GITHUB_ENV
+          echo "VCPKG_ROOT=$env:RUNNER_TEMP\\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\\vcpkg\\installed" >> $env:GITHUB_ENV
 
       - name: Configure (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Configure (Windows) using vcpkg toolchain
+      - name: Configure (Windows) using vcpkg toolchain (convert paths to forward slashes)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
@@ -68,21 +69,38 @@ jobs:
           $hdf5Share = Join-Path $instPrefix 'share\hdf5'
           $hdf5Include = Join-Path $instPrefix 'include'
           $hdf5Lib = Join-Path $instPrefix 'lib'
-          Write-Host "Using vcpkg toolchain: $vcpkgToolchain"
-          Write-Host "vcpkg installed prefix: $instPrefix"
+
+          # convert Windows backslashes to forward slashes to avoid CMake escape problems
+          $instPrefixUnix = $instPrefix -replace '\\','/'
+          $vcpkgToolchainUnix = $vcpkgToolchain -replace '\\','/'
+          $hdf5ShareUnix = $hdf5Share -replace '\\','/'
+          $hdf5IncludeUnix = $hdf5Include -replace '\\','/'
+          $hdf5LibUnix = $hdf5Lib -replace '\\','/'
+
+          Write-Host "Using vcpkg toolchain: $vcpkgToolchainUnix"
+          Write-Host "vcpkg installed prefix (unix style): $instPrefixUnix"
           if (-not (Test-Path $vcpkgToolchain)) {
             Write-Error "vcpkg toolchain not found at: $vcpkgToolchain"
             Exit 1
           }
-          Write-Host "Listing vcpkg installed hdf5-related files:"
-          if (Test-Path $hdf5Share) { Get-ChildItem -Path $hdf5Share -Recurse | Select-Object FullName,Length | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Share" }
-          if (Test-Path $hdf5Include) { Get-ChildItem -Path $hdf5Include -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Include" }
-          if (Test-Path $hdf5Lib) { Get-ChildItem -Path $hdf5Lib -Recurse | Select-Object FullName | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Lib" }
+
+          Write-Host "Listing vcpkg installed hdf5-related files (if present):"
+          if (Test-Path $hdf5Share) { Get-ChildItem -Path $hdf5Share -Recurse | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Share" }
+          if (Test-Path $hdf5Include) { Get-ChildItem -Path $hdf5Include -Recurse | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Include" }
+          if (Test-Path $hdf5Lib) { Get-ChildItem -Path $hdf5Lib -Recurse | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Lib" }
+
           if (Test-Path (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake')) {
             Write-Host "vcpkg-cmake-wrapper.cmake contents:"
             Get-Content (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake') | ForEach-Object { Write-Host $_ }
           }
-          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" -DVCPKG_TARGET_TRIPLET="x64-windows" -DHDF5_ROOT="$instPrefix" -DHDF5_DIR="$hdf5Share" -DHDF5_INCLUDE_DIRS="$hdf5Include"
+
+          # Configure CMake with vcpkg toolchain and forward-slash paths to avoid CMake escape issues.
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" `
+            -DVCPKG_TARGET_TRIPLET="x64-windows" `
+            -DHDF5_ROOT="$instPrefixUnix" `
+            -DHDF5_DIR="$hdf5ShareUnix" `
+            -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix"
 
       - name: Build (non-Windows)
         if: matrix.os != 'windows-latest'

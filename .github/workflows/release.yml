@@ -145,7 +145,8 @@ jobs:
         shell: powershell
         run: |
           & python -m pip install --upgrade pip
-          & python -m pip install pytest || Write-Host "pytest install failed (continuing)"
+          & python -m pip install pytest
+          if ($LASTEXITCODE -ne 0) { Write-Host "pytest install failed (continuing)" }
 
       - name: Run Python tests (Unix) - pytest if present otherwise import smoke test
         if: matrix.os != 'windows-latest'
@@ -165,7 +166,8 @@ jobs:
         run: |
           if (Test-Path Tests\python) {
             Write-Host "Running python pytest tests..."
-            & python -m pytest Tests\python -q || Write-Host "pytest returned non-zero (continuing)"
+            & python -m pytest Tests\python -q
+            if ($LASTEXITCODE -ne 0) { Write-Host "pytest returned non-zero (continuing)" }
           } else {
             Write-Host "No Tests/python directory found; running import smoke test"
             $lines = @(

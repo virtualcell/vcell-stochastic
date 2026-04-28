@@ -155,16 +155,7 @@ jobs:
             python -m pytest Tests/python -q || true
           else
             echo "No Tests/python directory found; running import smoke test"
-            cat > import_test.py <<'PY'
-import sys, importlib, traceback
-sys.path.insert(0, 'build')
-try:
-    import VCellStoch
-    print('VCellStoch import OK')
-except Exception:
-    traceback.print_exc()
-    sys.exit(1)
-PY
+            printf '%s\n' "import sys, importlib, traceback" "sys.path.insert(0, 'build')" "try:" "    import VCellStoch" "    print('VCellStoch import OK')" "except Exception:" "    traceback.print_exc()" "    sys.exit(1)" > import_test.py
             python import_test.py
           fi
 
@@ -177,17 +168,17 @@ PY
             & python -m pytest Tests\python -q || Write-Host "pytest returned non-zero (continuing)"
           } else {
             Write-Host "No Tests/python directory found; running import smoke test"
-            $script = @"
-import sys, importlib, traceback
-sys.path.insert(0, 'build')
-try:
-    import VCellStoch
-    print('VCellStoch import OK')
-except Exception:
-    traceback.print_exc()
-    sys.exit(1)
-"@
-            $script | Out-File -FilePath import_test.py -Encoding utf8
+            $lines = @(
+              "import sys, importlib, traceback"
+              "sys.path.insert(0, 'build')"
+              "try:"
+              "    import VCellStoch"
+              "    print('VCellStoch import OK')"
+              "except Exception:"
+              "    traceback.print_exc()"
+              "    sys.exit(1)"
+            )
+            $lines | Out-File -FilePath import_test.py -Encoding utf8
             & python import_test.py
           }
 

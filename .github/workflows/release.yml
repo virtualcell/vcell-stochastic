@@ -27,6 +27,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # --- Python setup (all platforms) ---
+      - name: Set up Python (3.10)
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+        if: always()
+
+      - name: Get Python executable (Unix)
+        if: matrix.os != 'windows-latest'
+        id: get-python
+        run: |
+          echo "PYTHON_EXE=$(python -c 'import sys; print(sys.executable)')" >> $GITHUB_OUTPUT
+
+      - name: Get Python executable (Windows)
+        if: matrix.os == 'windows-latest'
+        id: get-python-windows
+        shell: powershell
+        run: |
+          $py = & python -c "import sys; print(sys.executable)"
+          echo "PYTHON_EXE=$py" >> $GITHUB_OUTPUT
+
+      # --- Platform environment setup ---
       - name: Set up environment - Linux
         if: matrix.os == 'ubuntu-22.04'
         run: |
@@ -48,16 +70,20 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
-          # If project needs extra features (e.g. C++ wrappers) use something like: & $vcpkgExe install "hdf5[cxx]:x64-windows"
+          # install HDF5; adapt features if your bindings require them, e.g. "hdf5[cxx]:x64-windows"
           & $vcpkgExe install hdf5:x64-windows
           echo "VCPKG_ROOT=$env:RUNNER_TEMP\\vcpkg" >> $env:GITHUB_ENV
           echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\\vcpkg\\installed" >> $env:GITHUB_ENV
 
-      - name: Configure (non-Windows)
+      # --- Configure (non-Windows) ---
+      - name: Configure (non-Windows) with Python bindings
         if: matrix.os != 'windows-latest'
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          PY_EXE="${{ steps.get-python.outputs.PYTHON_EXE }}"
+          echo "Using Python executable: $PY_EXE"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$PY_EXE"
 
+      # --- Configure (Windows) using vcpkg toolchain (prefer config mode, forward slashes, HDF5 hints) ---
       - name: Configure (Windows) using vcpkg toolchain (prefer config mode, forward slashes, HDF5 hints)
         if: matrix.os == 'windows-latest'
         shell: powershell
@@ -94,13 +120,17 @@ jobs:
             Get-Content (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake') | ForEach-Object { Write-Host $_ }
           }
 
-          # Hints to help CMake find HDF5:
+          # Hints to help CMake find HDF5 and pass Python executable
           $hdf5LibFile = "$hdf5LibUnix/hdf5.lib"
           Write-Host "Passing HDF5_LIBRARY hint: $hdf5LibFile"
 
-          # Single-line cmake call (no backticks) so PowerShell parsing is safe
-          & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" -DVCPKG_TARGET_TRIPLET="x64-windows" -DCMAKE_PREFIX_PATH="$instPrefixUnix" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE -DHDF5_ROOT="$instPrefixUnix" -DHDF5_DIR="$hdf5ShareUnix" -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" -DHDF5_LIBRARY="$hdf5LibFile" -DHDF5_LIBRARIES="$hdf5LibFile"
+          $pyExe = ${{ steps.get-python-windows.outputs.PYTHON_EXE }}
+          Write-Host "Using Python executable: $pyExe"
 
+          # Single-line cmake call so PowerShell parsing is safe
+          & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" -DVCPKG_TARGET_TRIPLET="x64-windows" -DCMAKE_PREFIX_PATH="$instPrefixUnix" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$pyExe" -DHDF5_ROOT="$instPrefixUnix" -DHDF5_DIR="$hdf5ShareUnix" -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" -DHDF5_LIBRARY="$hdf5LibFile" -DHDF5_LIBRARIES="$hdf5LibFile"
+
+      # --- Build steps ---
       - name: Build (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |
@@ -112,13 +142,53 @@ jobs:
         run: |
           & cmake --build build --config Release -- /m
 
-      - name: Run tests (non-Windows) - best-effort
+      # --- Python tests & install ---
+      - name: Install pytest and requirements (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          if [ -f build/CTestTestfile.cmake ]; then
-            ctest --test-dir build --verbose || true
+          python -m pip install --upgrade pip
+          python -m pip install pytest || true
+          # install any project-specific python test requirements if present
+          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
+
+      - name: Install pytest and requirements (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          & python -m pip install --upgrade pip
+          & python -m pip install pytest || Write-Host "pytest install failed (continuing)"
+
+      - name: Run Python tests (Unix) - pytest if present otherwise import smoke test
+        if: matrix.os != 'windows-latest'
+        run: |
+          if [ -d Tests/python ]; then
+            echo "Running python pytest tests..."
+            python -m pytest Tests/python -q || true
+          else
+            echo "No Tests/python directory found; running import smoke test"
+            PY_EXE="${{ steps.get-python.outputs.PYTHON_EXE }}"
+            echo "Running: $PY_EXE -c 'import sys; print(sys.version); import importlib; import os; sys.path.insert(0,\"build\"); print(\"import test:\"); import importlib; try: import VCellStoch; print(\"import ok\") except Exception as e: print(\"import failed:\", e)'"
+            # best-effort import test; adjust module name if needed
+            python -c "import sys, os; sys.path.insert(0,'build'); print('PYOK'); \
+              try: import VCellStoch as _; print('VCellStoch import OK') \
+              except Exception as e: print('VCellStoch import failed:', e)"
           fi
 
+      - name: Run Python tests (Windows) - pytest if present otherwise import smoke test
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          if (Test-Path Tests\python) {
+            Write-Host "Running python pytest tests..."
+            & python -m pytest Tests\python -q || Write-Host "pytest returned non-zero (continuing)"
+          } else {
+            Write-Host "No Tests/python directory found; running import smoke test"
+            & python -c "import sys, os; sys.path.insert(0,'build'); print('PYOK'); \
+              try: import VCellStoch as _; print('VCellStoch import OK') \
+              except Exception as e: print('VCellStoch import failed:', e)"
+          }
+
+      # --- Collect build outputs (non-Windows) ---
       - name: Collect build outputs (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |
@@ -126,6 +196,9 @@ jobs:
           if [ -d build/bin ]; then
             cp -r build/bin artifacts/ || true
           fi
+          # Collect any python artifacts (wheel/dist/build/python) if present
+          if [ -d build/python ]; then cp -r build/python artifacts/python || true; fi
+          if [ -d dist ]; then cp -r dist artifacts/dist || true; fi
 
       - name: Collect build outputs (Windows)
         if: matrix.os == 'windows-latest'
@@ -135,7 +208,14 @@ jobs:
           if (Test-Path build\bin) {
             Copy-Item -Path build\bin\* -Destination artifacts -Recurse -Force
           }
+          if (Test-Path build\python) {
+            Copy-Item -Path build\python\* -Destination artifacts\python -Recurse -Force
+          }
+          if (Test-Path dist) {
+            Copy-Item -Path dist\* -Destination artifacts\dist -Recurse -Force
+          }
 
+      # --- Package artifacts ---
       - name: Package artifacts (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |

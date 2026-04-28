@@ -19,4 +19,8 @@ target_compile_features(vcellstochastic_py PRIVATE cxx_std_14)
 
 target_include_directories(vcellstochastic_py PRIVATE
         ${Python3_INCLUDE_DIRS}
+        ${PROJECT_SOURCE_DIR}/VCellStoch/include
+        ${PROJECT_SOURCE_DIR}/ExpressionParser
+        ${PROJECT_SOURCE_DIR}/vcommons/include
+        ${PROJECT_SOURCE_DIR}/VCellMessaging/include
 )

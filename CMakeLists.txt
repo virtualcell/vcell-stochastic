@@ -18,6 +18,7 @@ endif()
 
 # Options
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(OPTION_TARGET_MESSAGING "Enable messaging support" OFF)
 option(OPTION_BUILD_PYTHON_BINDINGS "Build Python bindings using pybind11" OFF)
 

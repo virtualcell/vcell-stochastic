@@ -66,7 +66,7 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
-          # If bindings require C++ API, consider: & $vcpkgExe install "hdf5[cxx]:x64-windows"
+          # If your bindings require extra features (e.g. C++ API) consider: & $vcpkgExe install "hdf5[cxx]:x64-windows"
           & $vcpkgExe install hdf5:x64-windows
           Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg"
           Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_INSTALLED=$env:RUNNER_TEMP\vcpkg\installed"
@@ -184,26 +184,56 @@ jobs:
             & python import_test.py
           }
 
-      # Collect python artifacts explicitly (wheels or extension modules) into artifacts/python
-      - name: Collect Python artifacts (Unix)
+      - name: Collect Python artifacts (Unix) — build wheel if possible, copy extensions
         if: matrix.os != 'windows-latest'
         run: |
+          set -eux
           mkdir -p artifacts/python
-          # copy wheels if present
-          if [ -d dist ]; then cp -r dist/* artifacts/python/ || true; fi
-          # collect common extension filenames (.so/.pyd/.dll) from build tree
+          python -m pip install --upgrade pip setuptools wheel build || true
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            echo "Building wheel via python -m build ..."
+            python -m build --wheel --outdir dist || true
+          fi
+          if [ -d dist ]; then
+            find dist -type f -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
+            find dist -type f -not -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
+          fi
+          cmake --install build --prefix install || true
+          if [ -d install ]; then
+            find install -type f \( -name "*.so" -o -name "*.py" -o -name "*.pyd" -o -name "*.dylib" -o -name "*.dll" \) -exec cp --parents '{}' artifacts/python/ \; || true
+          fi
           find build -type f \( -name "*.so" -o -name "*.pyd" -o -name "*.dll" -o -name "*.dylib" \) -exec cp --parents '{}' artifacts/python/ \; || true
+          echo "Collected Python artifacts:"
+          ls -R artifacts/python || true
 
-      - name: Collect Python artifacts (Windows)
+      - name: Collect Python artifacts (Windows) — build wheel if possible, copy extensions
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Continue'
           New-Item -ItemType Directory -Path artifacts\python -Force | Out-Null
-          if (Test-Path dist) { Copy-Item -Path dist\* -Destination artifacts\python -Recurse -Force -ErrorAction SilentlyContinue }
-          Get-ChildItem -Path build -Recurse -Include *.pyd,*.dll,*.so,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
-            $dest = Join-Path $PWD 'artifacts\python'
-            Copy-Item -Path $_.FullName -Destination $dest -Force
+          & python -m pip install --upgrade pip setuptools wheel build | Out-Null
+          if (Test-Path pyproject.toml -or Test-Path setup.py) {
+            Write-Host "Building wheel via python -m build ..."
+            & python -m build --wheel --outdir dist || Write-Host "python -m build failed (continuing)"
           }
+          if (Test-Path dist) {
+            Get-ChildItem -Path dist -File -ErrorAction SilentlyContinue | ForEach-Object {
+              Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
+            }
+          }
+          & cmake --install build --prefix install || Write-Host "cmake --install failed (continuing)"
+          if (Test-Path install) {
+            Get-ChildItem -Path install -Recurse -Include *.py,*.pyd,*.so,*.dll,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
+              $target = Join-Path $PWD 'artifacts\python'
+              Copy-Item -Path $_.FullName -Destination $target -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Get-ChildItem -Path build -Recurse -Include *.pyd,*.dll,*.so,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
+          }
+          Write-Host "Collected Python artifacts (artifacts\\python):"
+          Get-ChildItem artifacts\python -Recurse -Force -ErrorAction SilentlyContinue || Write-Host "No python artifacts found"
 
       - name: Collect build outputs (non-Windows)
         if: matrix.os != 'windows-latest'
@@ -334,12 +364,9 @@ jobs:
             local fname
             fname=$(basename "$file")
             echo "Uploading $file as $fname"
-            # upload_url includes {?name,label}; remove the template if present
             base_upload_url="${UPLOAD_URL%\{*}"
             curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/octet-stream" --data-binary @"$file" "$base_upload_url?name=$fname" || { echo "Upload failed for $file"; exit 1; }
           }
-
-          # find wheel files and other python artifacts under artifacts/*/python and upload them
           for f in ./artifacts/*/python/* ./artifacts/*/dist/* ./artifacts/*/*.whl; do
             if [ -f "$f" ]; then
               upload "$f"

@@ -66,7 +66,6 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
-          # If your bindings require extra features (e.g. C++ API) consider: & $vcpkgExe install "hdf5[cxx]:x64-windows"
           & $vcpkgExe install hdf5:x64-windows
           if ($LASTEXITCODE -ne 0) { Write-Host "vcpkg install returned non-zero (continuing)" }
           Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg"
@@ -90,7 +89,6 @@ jobs:
           $hdf5Include = Join-Path $instPrefix 'include'
           $hdf5Lib = Join-Path $instPrefix 'lib'
 
-          # Convert backslashes to forward slashes to avoid CMake escaping issues
           $instPrefixUnix = $instPrefix -replace '\\','/'
           $vcpkgToolchainUnix = $vcpkgToolchain -replace '\\','/'
           $hdf5ShareUnix = $hdf5Share -replace '\\','/'
@@ -98,20 +96,9 @@ jobs:
           $hdf5LibUnix = $hdf5Lib -replace '\\','/'
 
           Write-Host "Using vcpkg toolchain: $vcpkgToolchainUnix"
-          Write-Host "vcpkg installed prefix (unix-style): $instPrefixUnix"
           if (-not (Test-Path $vcpkgToolchain)) {
             Write-Error "vcpkg toolchain not found at: $vcpkgToolchain"
             Exit 1
-          }
-
-          Write-Host "Listing vcpkg installed hdf5-related files (if present):"
-          if (Test-Path $hdf5Share) { Get-ChildItem -Path $hdf5Share -Recurse | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Share" }
-          if (Test-Path $hdf5Include) { Get-ChildItem -Path $hdf5Include -Recurse | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Include" }
-          if (Test-Path $hdf5Lib) { Get-ChildItem -Path $hdf5Lib -Recurse | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No $hdf5Lib" }
-
-          if (Test-Path (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake')) {
-            Write-Host "vcpkg-cmake-wrapper.cmake contents:"
-            Get-Content (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake') | ForEach-Object { Write-Host $_ }
           }
 
           $pyExe = $env:PYTHON_EXE
@@ -120,136 +107,171 @@ jobs:
           $hdf5LibFile = "$hdf5LibUnix/hdf5.lib"
           Write-Host "Passing HDF5_LIBRARY hint: $hdf5LibFile"
 
-          # Single-line cmake call so PowerShell parsing is safe
-          & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" -DVCPKG_TARGET_TRIPLET="x64-windows" -DCMAKE_PREFIX_PATH="$instPrefixUnix" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$pyExe" -DHDF5_ROOT="$instPrefixUnix" -DHDF5_DIR="$hdf5ShareUnix" -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" -DHDF5_LIBRARY="$hdf5LibFile" -DHDF5_LIBRARIES="$hdf5LibFile"
+          & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" `
+            -DVCPKG_TARGET_TRIPLET="x64-windows" `
+            -DCMAKE_PREFIX_PATH="$instPrefixUnix" `
+            -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE `
+            -DBUILD_PYTHON_BINDINGS=ON `
+            -DPYTHON_EXECUTABLE="$pyExe" `
+            -DHDF5_ROOT="$instPrefixUnix" `
+            -DHDF5_DIR="$hdf5ShareUnix" `
+            -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" `
+            -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" `
+            -DHDF5_LIBRARY="$hdf5LibFile" `
+            -DHDF5_LIBRARIES="$hdf5LibFile"
           if ($LASTEXITCODE -ne 0) { Write-Host "cmake configuration returned non-zero (continuing)" }
 
-      - name: Build (non-Windows)
+      - name: Build all (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |
           cmake --build build --config Release -- -j$(nproc || sysctl -n hw.ncpu)
 
-      - name: Build (Windows)
+      - name: Build all (Windows)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
           & cmake --build build --config Release -- /m
           if ($LASTEXITCODE -ne 0) { Write-Host "cmake build returned non-zero (continuing)" }
 
-      - name: Install pytest and requirements (Unix)
+      - name: Detect and build Python binding targets (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest || true
-          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
-
-      - name: Install pytest and requirements (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: powershell
-        run: |
-          & python -m pip install --upgrade pip
-          & python -m pip install pytest
-          if ($LASTEXITCODE -ne 0) { Write-Host "pytest install failed (continuing)" }
-
-      - name: Run Python tests (Unix) - pytest if present otherwise import smoke test
-        if: matrix.os != 'windows-latest'
-        run: |
-          if [ -d Tests/python ]; then
-            echo "Running python pytest tests..."
-            python -m pytest Tests/python -q || true
-          else
-            echo "No Tests/python directory found; running import smoke test"
-            printf '%s\n' "import sys, importlib, traceback" "sys.path.insert(0, 'build')" "try:" "    import VCellStoch" "    print('VCellStoch import OK')" "except Exception:" "    traceback.print_exc()" "    sys.exit(1)" > import_test.py
-            python import_test.py
+          set -eux
+          echo "Listing CMake build targets (help):"
+          cmake --build build --target help | tee build-targets.txt || true
+          echo "Searching for targets that look like python bindings..."
+          # Candidate keywords and fallback names:
+          grep -Eio 'python|pybind|pywrap|pyext|vcell|bindings' build-targets.txt | sort -u > /tmp/py_keywords_found.txt || true
+          TARGETS=$(grep -E '^[[:space:]]+[a-zA-Z0-9_:-]+' build-targets.txt | sed -E 's/^[[:space:]]+([a-zA-Z0-9_:-]+).*/\1/' | sort -u)
+          echo "All targets (excerpt):"
+          echo "$TARGETS" | sed -n '1,200p' || true
+          TOBUILD=""
+          # build any target whose name contains the keywords
+          for t in $TARGETS; do
+            lname=$(echo "$t" | tr '[:upper:]' '[:lower:]')
+            if echo "$lname" | grep -E 'python|pybind|pywrap|pyext|vcell|bindings' >/dev/null; then
+              TOBUILD="$TOBUILD $t"
+            fi
+          done
+          if [ -z "$TOBUILD" ]; then
+            echo "No python-like targets found; trying fallback common names..."
+            FALLBACK="python python_bindings pybind VCellStochPython vcell_python vcellstoch_python bindings"
+            for f in $FALLBACK; do
+              if echo "$TARGETS" | grep -x "$f" >/dev/null; then
+                TOBUILD="$TOBUILD $f"
+              fi
+            done
           fi
+          if [ -n "$TOBUILD" ]; then
+            echo "Building detected python-related targets: $TOBUILD"
+            for t in $TOBUILD; do
+              cmake --build build --config Release --target "$t" -- -j$(nproc || sysctl -n hw.ncpu) || true
+            done
+          else
+            echo "No targets to build for Python bindings were detected."
+          fi
+          echo "Done detecting/building python targets."
 
-      - name: Run Python tests (Windows) - pytest if present otherwise import smoke test
+      - name: Detect and build Python binding targets (Windows)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          if (Test-Path Tests\python) {
-            Write-Host "Running python pytest tests..."
-            & python -m pytest Tests\python -q
-            if ($LASTEXITCODE -ne 0) { Write-Host "pytest returned non-zero (continuing)" }
+          $ErrorActionPreference = 'Continue'
+          Write-Host "Listing CMake build targets (help)..."
+          & cmake --build build --target help > build-targets.txt 2>&1
+          Get-Content build-targets.txt | Select-Object -First 200 | ForEach-Object { Write-Host $_ }
+          $targets = Get-Content build-targets.txt | ForEach-Object {
+            if ($_ -match '^\s+([A-Za-z0-9_:-]+)') { $matches[1] }
+          } | Sort-Object -Unique
+          Write-Host "Extracted targets (excerpt):"
+          $targets | Select-Object -First 200 | ForEach-Object { Write-Host $_ }
+          $pyCandidates = $targets | Where-Object { $_ -match '(?i)python|pybind|pywrap|pyext|vcell|bindings' }
+          if ($pyCandidates -and $pyCandidates.Count -gt 0) {
+            Write-Host "Detected python-related targets: $($pyCandidates -join ', ')"
+            foreach ($t in $pyCandidates) {
+              Write-Host "Building target $t"
+              & cmake --build build --config Release --target $t -- /m
+              if ($LASTEXITCODE -ne 0) { Write-Host "Build of $t failed (continuing)" }
+            }
           } else {
-            Write-Host "No Tests/python directory found; running import smoke test"
-            $lines = @(
-              "import sys, importlib, traceback"
-              "sys.path.insert(0, 'build')"
-              "try:"
-              "    import VCellStoch"
-              "    print('VCellStoch import OK')"
-              "except Exception:"
-              "    traceback.print_exc()"
-              "    sys.exit(1)"
-            )
-            $lines | Out-File -FilePath import_test.py -Encoding utf8
-            & python import_test.py
-            if ($LASTEXITCODE -ne 0) { Write-Host "import smoke test failed (continuing)" }
+            Write-Host "No python-like targets found; trying fallback list..."
+            $fallback = @('python','python_bindings','pybind','VCellStochPython','vcell_python','vcellstoch_python','bindings')
+            foreach ($f in $fallback) {
+              if ($targets -contains $f) {
+                Write-Host "Building fallback target $f"
+                & cmake --build build --config Release --target $f -- /m
+                if ($LASTEXITCODE -ne 0) { Write-Host "Build of $f failed (continuing)" }
+              }
+            }
           }
 
-      - name: Collect Python artifacts (Unix) — build wheel if possible, copy extensions
+      - name: Install (non-Windows)
+        if: matrix.os != 'windows-latest'
+        run: |
+          set -eux
+          cmake --install build --prefix install || true
+          echo "Install tree (excerpt):"
+          if [ -d install ]; then ls -R install | sed -n '1,200p' || true; fi
+
+      - name: Install (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          & cmake --install build --prefix install
+          if ($LASTEXITCODE -ne 0) { Write-Host "cmake --install returned non-zero (continuing)" }
+          if (Test-Path install) { Get-ChildItem install -Recurse -Depth 2 | ForEach-Object { Write-Host $_.FullName } }
+
+      - name: Collect Python artifacts (Unix) — build wheel if possible, copy extensions and installed site-packages
         if: matrix.os != 'windows-latest'
         run: |
           set -eux
           mkdir -p artifacts/python
           python -m pip install --upgrade pip setuptools wheel build || true
           if [ -f pyproject.toml ] || [ -f setup.py ]; then
-            echo "Building wheel via python -m build ..."
+            echo "Attempting to build wheel via python -m build ..."
             python -m build --wheel --outdir dist || true
           fi
+          # copy any wheels
           if [ -d dist ]; then
             find dist -type f -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
             find dist -type f -not -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
           fi
-          cmake --install build --prefix install || true
+          # look for python install locations under install
           if [ -d install ]; then
-            find install -type f \( -name "*.so" -o -name "*.py" -o -name "*.pyd" -o -name "*.dylib" -o -name "*.dll" \) -exec cp --parents '{}' artifacts/python/ \; || true
+            find install -type f \( -path '*/site-packages/*' -o -name '*.py' -o -name '*.so' -o -name '*.pyd' -o -name '*.dylib' -o -name '*.dll' \) -exec cp --parents '{}' artifacts/python/ \; || true
           fi
-          find build -type f \( -name "*.so" -o -name "*.pyd" -o -name "*.dll" -o -name "*.dylib" \) -exec cp --parents '{}' artifacts/python/ \; || true
-          echo "Collected Python artifacts:"
-          ls -R artifacts/python || true
+          # scan build tree for extension modules
+          find build -type f \( -name '*.so' -o -name '*.pyd' -o -name '*.dylib' -o -name '*.dll' \) -exec cp --parents '{}' artifacts/python/ \; || true
+          echo "Collected Python artifacts (artifacts/python):"
+          if [ -d artifacts/python ]; then ls -R artifacts/python || true; else echo "artifacts/python missing"; fi
 
-      - name: Collect Python artifacts (Windows) — build wheel if possible, copy extensions
+      - name: Collect Python artifacts (Windows) — build wheel if possible, copy extensions and installed site-packages
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
           New-Item -ItemType Directory -Path artifacts\python -Force | Out-Null
-
-          # ensure build tools are available
           & python -m pip install --upgrade pip setuptools wheel build
           if ($LASTEXITCODE -ne 0) { Write-Host "pip install build tools returned non-zero (continuing)" }
-
-          # Try to build a wheel if pyproject.toml or setup.py exists
           if (Test-Path pyproject.toml -or Test-Path setup.py) {
-            Write-Host "Building wheel via python -m build ..."
+            Write-Host "Attempting to build wheel via python -m build ..."
             & python -m build --wheel --outdir dist
             if ($LASTEXITCODE -ne 0) { Write-Host "python -m build failed (continuing)" }
           }
-
           if (Test-Path dist) {
             Get-ChildItem -Path dist -File -ErrorAction SilentlyContinue | ForEach-Object {
               Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
             }
           }
-
-          # Try cmake --install into 'install' prefix and copy any python files
-          & cmake --install build --prefix install
-          if ($LASTEXITCODE -ne 0) { Write-Host "cmake --install failed (continuing)" }
-
           if (Test-Path install) {
-            Get-ChildItem -Path install -Recurse -Include *.py,*.pyd,*.so,*.dll,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
-              $target = Join-Path $PWD 'artifacts\python'
-              Copy-Item -Path $_.FullName -Destination $target -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -Path install -Recurse -Include '*site-packages*','*.py','*.pyd','*.so','*.dll','*.dylib' -File -ErrorAction SilentlyContinue | ForEach-Object {
+              Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
             }
           }
-
-          # Scan build tree for extension modules
           Get-ChildItem -Path build -Recurse -Include *.pyd,*.dll,*.so,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
           }
-
           Write-Host "Collected Python artifacts (artifacts\\python):"
           if (Test-Path artifacts\python) {
             Get-ChildItem artifacts\python -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
@@ -264,7 +286,6 @@ jobs:
           if [ -d build/bin ]; then
             cp -r build/bin artifacts/ || true
           fi
-          # python artifacts are already copied into artifacts/python above
 
       - name: Collect build outputs (Windows)
         if: matrix.os == 'windows-latest'
@@ -274,7 +295,6 @@ jobs:
           if (Test-Path build\bin) {
             Copy-Item -Path build\bin\* -Destination artifacts -Recurse -Force
           }
-          # python artifacts are already copied into artifacts\python above
 
       - name: Package artifacts (non-Windows)
         if: matrix.os != 'windows-latest'

@@ -184,6 +184,27 @@ jobs:
             & python import_test.py
           }
 
+      # Collect python artifacts explicitly (wheels or extension modules) into artifacts/python
+      - name: Collect Python artifacts (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p artifacts/python
+          # copy wheels if present
+          if [ -d dist ]; then cp -r dist/* artifacts/python/ || true; fi
+          # collect common extension filenames (.so/.pyd/.dll) from build tree
+          find build -type f \( -name "*.so" -o -name "*.pyd" -o -name "*.dll" -o -name "*.dylib" \) -exec cp --parents '{}' artifacts/python/ \; || true
+
+      - name: Collect Python artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path artifacts\python -Force | Out-Null
+          if (Test-Path dist) { Copy-Item -Path dist\* -Destination artifacts\python -Recurse -Force -ErrorAction SilentlyContinue }
+          Get-ChildItem -Path build -Recurse -Include *.pyd,*.dll,*.so,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $dest = Join-Path $PWD 'artifacts\python'
+            Copy-Item -Path $_.FullName -Destination $dest -Force
+          }
+
       - name: Collect build outputs (non-Windows)
         if: matrix.os != 'windows-latest'
         run: |
@@ -191,8 +212,7 @@ jobs:
           if [ -d build/bin ]; then
             cp -r build/bin artifacts/ || true
           fi
-          if [ -d build/python ]; then cp -r build/python artifacts/python || true; fi
-          if [ -d dist ]; then cp -r dist artifacts/dist || true; fi
+          # python artifacts are already copied into artifacts/python above
 
       - name: Collect build outputs (Windows)
         if: matrix.os == 'windows-latest'
@@ -202,12 +222,7 @@ jobs:
           if (Test-Path build\bin) {
             Copy-Item -Path build\bin\* -Destination artifacts -Recurse -Force
           }
-          if (Test-Path build\python) {
-            Copy-Item -Path build\python\* -Destination artifacts\python -Recurse -Force
-          }
-          if (Test-Path dist) {
-            Copy-Item -Path dist\* -Destination artifacts\dist -Recurse -Force
-          }
+          # python artifacts are already copied into artifacts\python above
 
       - name: Package artifacts (non-Windows)
         if: matrix.os != 'windows-latest'
@@ -278,7 +293,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Linux asset
+      - name: Upload per-platform zip assets
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -288,7 +303,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload macOS asset
+      - name: Upload macOS zip asset
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -298,7 +313,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows asset
+      - name: Upload Windows zip asset
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -307,3 +322,26 @@ jobs:
           asset_content_type: application/zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Python artifacts (wheels / modules) as individual release assets if present
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_URL: ${{ steps.create_release.outputs.upload_url }}
+        run: |
+          set -e
+          upload() {
+            local file="$1"
+            local fname
+            fname=$(basename "$file")
+            echo "Uploading $file as $fname"
+            # upload_url includes {?name,label}; remove the template if present
+            base_upload_url="${UPLOAD_URL%\{*}"
+            curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/octet-stream" --data-binary @"$file" "$base_upload_url?name=$fname" || { echo "Upload failed for $file"; exit 1; }
+          }
+
+          # find wheel files and other python artifacts under artifacts/*/python and upload them
+          for f in ./artifacts/*/python/* ./artifacts/*/dist/* ./artifacts/*/*.whl; do
+            if [ -f "$f" ]; then
+              upload "$f"
+            fi
+          done || true

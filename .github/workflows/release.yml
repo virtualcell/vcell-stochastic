@@ -68,6 +68,7 @@ jobs:
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
           # If your bindings require extra features (e.g. C++ API) consider: & $vcpkgExe install "hdf5[cxx]:x64-windows"
           & $vcpkgExe install hdf5:x64-windows
+          if ($LASTEXITCODE -ne 0) { Write-Host "vcpkg install returned non-zero (continuing)" }
           Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg"
           Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_INSTALLED=$env:RUNNER_TEMP\vcpkg\installed"
 
@@ -121,6 +122,7 @@ jobs:
 
           # Single-line cmake call so PowerShell parsing is safe
           & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" -DVCPKG_TARGET_TRIPLET="x64-windows" -DCMAKE_PREFIX_PATH="$instPrefixUnix" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$pyExe" -DHDF5_ROOT="$instPrefixUnix" -DHDF5_DIR="$hdf5ShareUnix" -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" -DHDF5_LIBRARY="$hdf5LibFile" -DHDF5_LIBRARIES="$hdf5LibFile"
+          if ($LASTEXITCODE -ne 0) { Write-Host "cmake configuration returned non-zero (continuing)" }
 
       - name: Build (non-Windows)
         if: matrix.os != 'windows-latest'
@@ -132,6 +134,7 @@ jobs:
         shell: powershell
         run: |
           & cmake --build build --config Release -- /m
+          if ($LASTEXITCODE -ne 0) { Write-Host "cmake build returned non-zero (continuing)" }
 
       - name: Install pytest and requirements (Unix)
         if: matrix.os != 'windows-latest'
@@ -182,6 +185,7 @@ jobs:
             )
             $lines | Out-File -FilePath import_test.py -Encoding utf8
             & python import_test.py
+            if ($LASTEXITCODE -ne 0) { Write-Host "import smoke test failed (continuing)" }
           }
 
       - name: Collect Python artifacts (Unix) — build wheel if possible, copy extensions
@@ -212,28 +216,46 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           New-Item -ItemType Directory -Path artifacts\python -Force | Out-Null
-          & python -m pip install --upgrade pip setuptools wheel build | Out-Null
+
+          # ensure build tools are available
+          & python -m pip install --upgrade pip setuptools wheel build
+          if ($LASTEXITCODE -ne 0) { Write-Host "pip install build tools returned non-zero (continuing)" }
+
+          # Try to build a wheel if pyproject.toml or setup.py exists
           if (Test-Path pyproject.toml -or Test-Path setup.py) {
             Write-Host "Building wheel via python -m build ..."
-            & python -m build --wheel --outdir dist || Write-Host "python -m build failed (continuing)"
+            & python -m build --wheel --outdir dist
+            if ($LASTEXITCODE -ne 0) { Write-Host "python -m build failed (continuing)" }
           }
+
           if (Test-Path dist) {
             Get-ChildItem -Path dist -File -ErrorAction SilentlyContinue | ForEach-Object {
               Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
             }
           }
-          & cmake --install build --prefix install || Write-Host "cmake --install failed (continuing)"
+
+          # Try cmake --install into 'install' prefix and copy any python files
+          & cmake --install build --prefix install
+          if ($LASTEXITCODE -ne 0) { Write-Host "cmake --install failed (continuing)" }
+
           if (Test-Path install) {
             Get-ChildItem -Path install -Recurse -Include *.py,*.pyd,*.so,*.dll,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
               $target = Join-Path $PWD 'artifacts\python'
               Copy-Item -Path $_.FullName -Destination $target -Force -ErrorAction SilentlyContinue
             }
           }
+
+          # Scan build tree for extension modules
           Get-ChildItem -Path build -Recurse -Include *.pyd,*.dll,*.so,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
           }
+
           Write-Host "Collected Python artifacts (artifacts\\python):"
-          Get-ChildItem artifacts\python -Recurse -Force -ErrorAction SilentlyContinue || Write-Host "No python artifacts found"
+          if (Test-Path artifacts\python) {
+            Get-ChildItem artifacts\python -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+          } else {
+            Write-Host "No python artifacts found"
+          }
 
       - name: Collect build outputs (non-Windows)
         if: matrix.os != 'windows-latest'

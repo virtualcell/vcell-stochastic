@@ -48,7 +48,7 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
-          # If your project needs C++ wrappers/features, consider e.g. hdf5[cxx]:x64-windows
+          # If project needs extra features (e.g. C++ wrappers) use something like: & $vcpkgExe install "hdf5[cxx]:x64-windows"
           & $vcpkgExe install hdf5:x64-windows
           echo "VCPKG_ROOT=$env:RUNNER_TEMP\\vcpkg" >> $env:GITHUB_ENV
           echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\\vcpkg\\installed" >> $env:GITHUB_ENV
@@ -98,17 +98,8 @@ jobs:
           $hdf5LibFile = "$hdf5LibUnix/hdf5.lib"
           Write-Host "Passing HDF5_LIBRARY hint: $hdf5LibFile"
 
-          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" `
-            -DVCPKG_TARGET_TRIPLET="x64-windows" `
-            -DCMAKE_PREFIX_PATH="$instPrefixUnix" `
-            -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE `
-            -DHDF5_ROOT="$instPrefixUnix" `
-            -DHDF5_DIR="$hdf5ShareUnix" `
-            -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" `
-            -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" `
-            -DHDF5_LIBRARY="$hdf5LibFile" `
-            -DHDF5_LIBRARIES="$hdf5LibFile"
+          # Single-line cmake call (no backticks) so PowerShell parsing is safe
+          & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" -DVCPKG_TARGET_TRIPLET="x64-windows" -DCMAKE_PREFIX_PATH="$instPrefixUnix" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE -DHDF5_ROOT="$instPrefixUnix" -DHDF5_DIR="$hdf5ShareUnix" -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" -DHDF5_LIBRARY="$hdf5LibFile" -DHDF5_LIBRARIES="$hdf5LibFile"
 
       - name: Build (non-Windows)
         if: matrix.os != 'windows-latest'
@@ -119,7 +110,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          cmake --build build --config Release -- /m
+          & cmake --build build --config Release -- /m
 
       - name: Run tests (non-Windows) - best-effort
         if: matrix.os != 'windows-latest'
@@ -140,4 +131,106 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Path artifacts -](#)`
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          if (Test-Path build\bin) {
+            Copy-Item -Path build\bin\* -Destination artifacts -Recurse -Force
+          }
+
+      - name: Package artifacts (non-Windows)
+        if: matrix.os != 'windows-latest'
+        run: |
+          zip -r vcell-stoch-${{ matrix.os }}.zip artifacts -x "**/.git/**" || true
+
+      - name: Package artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $out = "vcell-stoch-${{ matrix.os }}.zip"
+          if (Test-Path artifacts) {
+            Compress-Archive -Path artifacts\* -DestinationPath $out -Force
+          } else {
+            New-Item -Path $out -ItemType File | Out-Null
+          }
+
+      - name: Upload job artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcell-stoch-${{ matrix.os }}
+          path: |
+            vcell-stoch-${{ matrix.os }}.zip
+            artifacts
+
+  create_release:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vcell-stoch-ubuntu-22.04
+          path: ./artifacts/linux
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vcell-stoch-macos-latest
+          path: ./artifacts/macos
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vcell-stoch-windows-latest
+          path: ./artifacts/windows
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag_name=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=ci-$(date +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          release_name: ${{ github.event.inputs.release_name || steps.tag.outputs.tag_name }}
+          body: "Automated build artifacts for ${{ steps.tag.outputs.tag_name }}"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux asset
+        uses: actions/upload-release-asset@v2
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/linux/vcell-stoch-ubuntu-22.04.zip
+          asset_name: vcell-stoch-ubuntu-22.04.zip
+          asset_content_type: application/zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS asset
+        uses: actions/upload-release-asset@v2
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/macos/vcell-stoch-macos-latest.zip
+          asset_name: vcell-stoch-macos-latest.zip
+          asset_content_type: application/zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows asset
+        uses: actions/upload-release-asset@v2
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/windows/vcell-stoch-windows-latest.zip
+          asset_name: vcell-stoch-windows-latest.zip
+          asset_content_type: application/zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

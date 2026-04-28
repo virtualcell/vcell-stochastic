@@ -33,19 +33,17 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Get Python executable (Unix)
+      - name: Export PYTHON_EXE (Unix)
         if: matrix.os != 'windows-latest'
-        id: get-python
         run: |
-          echo "python_exec=$(python -c 'import sys; print(sys.executable)')" >> $GITHUB_OUTPUT
+          echo "PYTHON_EXE=$(python -c 'import sys; print(sys.executable)')" >> $GITHUB_ENV
 
-      - name: Get Python executable (Windows)
+      - name: Export PYTHON_EXE (Windows)
         if: matrix.os == 'windows-latest'
-        id: get-python-windows
         shell: powershell
         run: |
           $py = & python -c "import sys; print(sys.executable)"
-          echo "python_exec=$py" >> $env:GITHUB_OUTPUT
+          Add-Content -Path $env:GITHUB_ENV -Value "PYTHON_EXE=$py"
 
       - name: Set up environment - Linux
         if: matrix.os == 'ubuntu-22.04'
@@ -68,17 +66,16 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
-          # Install HDF5 port. If your bindings require C++ API, consider hdf5[cxx]:x64-windows
+          # If bindings require C++ API, consider: & $vcpkgExe install "hdf5[cxx]:x64-windows"
           & $vcpkgExe install hdf5:x64-windows
-          echo "VCPKG_ROOT=$env:RUNNER_TEMP\\vcpkg" >> $env:GITHUB_ENV
-          echo "VCPKG_INSTALLED=$env:RUNNER_TEMP\\vcpkg\\installed" >> $env:GITHUB_ENV
+          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg"
+          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_INSTALLED=$env:RUNNER_TEMP\vcpkg\installed"
 
       - name: Configure (non-Windows) with Python bindings
         if: matrix.os != 'windows-latest'
         run: |
-          PY_EXE="${{ steps.get-python.outputs.python_exec }}"
-          echo "Using Python executable: $PY_EXE"
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$PY_EXE"
+          echo "Using Python executable: $PYTHON_EXE"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$PYTHON_EXE"
 
       - name: Configure (Windows) using vcpkg toolchain (prefer config mode, forward slashes, HDF5 & Python hints)
         if: matrix.os == 'windows-latest'
@@ -116,7 +113,7 @@ jobs:
             Get-Content (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake') | ForEach-Object { Write-Host $_ }
           }
 
-          $pyExe = '${{ steps.get-python-windows.outputs.python_exec }}'
+          $pyExe = $env:PYTHON_EXE
           Write-Host "Using Python executable: $pyExe"
 
           $hdf5LibFile = "$hdf5LibUnix/hdf5.lib"

@@ -23,6 +23,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-latest, windows-latest]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,7 +45,7 @@ jobs:
         shell: powershell
         run: |
           $py = & python -c "import sys; print(sys.executable)"
-          echo "python_exec=$py" >> $GITHUB_OUTPUT
+          echo "python_exec=$py" >> $env:GITHUB_OUTPUT
 
       - name: Set up environment - Linux
         if: matrix.os == 'ubuntu-22.04'
@@ -115,7 +116,7 @@ jobs:
             Get-Content (Join-Path $hdf5Share 'vcpkg-cmake-wrapper.cmake') | ForEach-Object { Write-Host $_ }
           }
 
-          $pyExe = "${{ steps.get-python-windows.outputs.python_exec }}"
+          $pyExe = '${{ steps.get-python-windows.outputs.python_exec }}'
           Write-Host "Using Python executable: $pyExe"
 
           $hdf5LibFile = "$hdf5LibUnix/hdf5.lib"

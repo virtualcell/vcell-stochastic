@@ -114,7 +114,6 @@ jobs:
         run: |
           set -eux
           cmake --build build --target help > build-targets.txt 2>&1 || true
-          # Extract candidate target names (lines with indentation + target)
           TARGETS=$(awk '/^[[:space:]]+[A-Za-z0-9_:-]+/ { sub(/^[[:space:]]+/,""); print $1 }' build-targets.txt | sort -u || true)
           echo "Targets detected (excerpt):"
           echo "$TARGETS" | sed -n '1,200p' || true
@@ -149,8 +148,10 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
-          & cmake --build build --target help > build-targets.txt 2>&1 || Write-Host "help target listing failed"
-          $content = Get-Content build-targets.txt -ErrorAction SilentlyContinue
+          & cmake --build build --target help > build-targets.txt 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Host "help target listing may have failed (continuing)" }
+          $content = @()
+          if (Test-Path build-targets.txt) { $content = Get-Content build-targets.txt -ErrorAction SilentlyContinue }
           $targets = @()
           foreach ($line in $content) {
             if ($line -match '^\s+([A-Za-z0-9_:-]+)') { $targets += $matches[1] }
@@ -159,7 +160,7 @@ jobs:
           Write-Host "Detected targets (excerpt):"
           $targets | Select-Object -First 200 | ForEach-Object { Write-Host $_ }
           $pyCandidates = $targets | Where-Object { $_ -match '(?i)python|pybind|pywrap|pyext|vcell|bindings' }
-          if ($pyCandidates.Count -gt 0) {
+          if ($pyCandidates -and $pyCandidates.Count -gt 0) {
             Write-Host "Detected python-related targets: $($pyCandidates -join ', ')"
             foreach ($t in $pyCandidates) {
               Write-Host "Building target $t"
@@ -231,12 +232,10 @@ jobs:
         run: |
           set -eux
           mkdir -p artifacts/python
-          # copy wheels if any
           if [ -d dist ]; then
             find dist -type f -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
             find dist -type f -not -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
           fi
-          # copy any extension libs from build (common extensions)
           find build -type f \( -iname "*.so" -o -iname "*.dylib" -o -iname "*.pyd" -o -iname "*.dll" \) -exec cp '{}' artifacts/python/ \; || true
           echo "Collected Python artifacts (Unix):"
           ls -R artifacts/python || true

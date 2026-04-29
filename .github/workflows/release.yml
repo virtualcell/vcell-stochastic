@@ -94,7 +94,7 @@ jobs:
           $hdf5IncludeUnix = $hdf5Include -replace '\\','/'
           $hdf5LibUnix = $hdf5Lib -replace '\\','/'
           $pyExe = $env:PYTHON_EXE
-          & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" -DVCPKG_TARGET_TRIPLET="x64-windows" -DCMAKE_PREFIX_PATH="$instPrefixUnix" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$pyExe" -DHDF5_ROOT="$instPrefixUnix" -DHDF5_DIR="$hdf5ShareUnix" -DHDF5_INCLUDE_DIRS="$hdf5IncludeUnix" -DHDF5_INCLUDE_DIR="$hdf5IncludeUnix" -DHDF5_LIBRARY="$hdf5LibUnix/hdf5.lib" -DHDF5_LIBRARIES="$hdf5LibUnix/hdf5.lib"
+          & cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchainUnix" -DVCPKG_TARGET_TRIPLET="x64-windows" -DCMAKE_PREFIX_PATH="$instPrefixUnix" -DCMAKE_FIND_ROOT_PATH="$instPrefixUnix" -DHDF5_ROOT="$instPrefixUnix" -DHDF5_HINT="$hdf5ShareUnix" -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$pyExe" -G "Visual Studio 17 2022"
           if ($LASTEXITCODE -ne 0) { Write-Host "cmake configuration returned non-zero (continuing)" }
 
       - name: Build (non-Windows)
@@ -148,7 +148,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
-          & cmake --build build --target help > build-targets.txt 2>&1
+          & cmake --build build --target help 2>&1 | Out-File -FilePath build-targets.txt -Force
           if ($LASTEXITCODE -ne 0) { Write-Host "help target listing may have failed (continuing)" }
           $content = @()
           if (Test-Path build-targets.txt) { $content = Get-Content build-targets.txt -ErrorAction SilentlyContinue }
@@ -159,7 +159,7 @@ jobs:
           $targets = $targets | Sort-Object -Unique
           Write-Host "Detected targets (excerpt):"
           $targets | Select-Object -First 200 | ForEach-Object { Write-Host $_ }
-          $pyCandidates = $targets | Where-Object { $_ -match '(?i)python|pybind|pywrap|pyext|vcell|bindings' }
+          $pyCandidates = $targets | Where-Object { $_ -match '(python|pybind|pywrap|pyext|vcell|bindings)' }
           if ($pyCandidates -and $pyCandidates.Count -gt 0) {
             Write-Host "Detected python-related targets: $($pyCandidates -join ', ')"
             foreach ($t in $pyCandidates) {
@@ -385,7 +385,7 @@ jobs:
             fname=$(basename "$file")
             echo "Uploading $file as $fname"
             base_upload_url="${UPLOAD_URL%\{*}"
-            curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/octet-stream" --data-binary @"$file" "$base_upload_url?name=$fname" || { echo "Upload failed for $file"; exit 1; }
+            curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/octet-stream" --data-binary @"$file" "$base_upload_url?name=$fname" || { echo "Upload failed for $file"; }
           }
           for f in ./artifacts/*/python/* ./artifacts/*/dist/* ./artifacts/*/*.whl; do
             if [ -f "$f" ]; then

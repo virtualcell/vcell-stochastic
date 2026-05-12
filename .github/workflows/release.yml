@@ -66,8 +66,12 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
           & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
-          & $vcpkgExe install hdf5:x64-windows
-          if ($LASTEXITCODE -ne 0) { Write-Host "vcpkg install returned non-zero (continuing)" }
+          
+          # Added [cpp] here so vcpkg builds the C++ headers your CMakeLists.txt needs
+          & $vcpkgExe install hdf5[core,cpp]:x64-windows
+          
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+          
           Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg"
           Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_INSTALLED=$env:RUNNER_TEMP\vcpkg\installed"
 
@@ -84,16 +88,14 @@ jobs:
           $vcpkgRoot = $env:VCPKG_ROOT
           $instPrefix = "$vcpkgRoot/installed/x64-windows" -replace '\\','/'
           $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
-          
-          # We explicitly set the variables find_package(HDF5) is failing to find
+
+          # We pass HDF5_ROOT and CMAKE_PREFIX_PATH so find_package(HDF5) finds the vcpkg files
           & cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" `
             -DVCPKG_TARGET_TRIPLET="x64-windows" `
             -DCMAKE_PREFIX_PATH="$instPrefix" `
             -DHDF5_ROOT="$instPrefix" `
-            -DHDF5_INCLUDE_DIRS="$instPrefix/include" `
-            -DHDF5_LIBRARIES="$instPrefix/lib/hdf5.lib;$instPrefix/lib/hdf5_cpp.lib" `
             -DBUILD_PYTHON_BINDINGS=ON `
             -DPYTHON_EXECUTABLE="$env:PYTHON_EXE"
 

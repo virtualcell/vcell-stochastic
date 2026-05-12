@@ -68,7 +68,7 @@ jobs:
           $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
           
           # Added [cpp] here so vcpkg builds the C++ headers your CMakeLists.txt needs
-          & $vcpkgExe install hdf5[core,cpp]:x64-windows
+          & $vcpkgExe install hdf5[core,cpp]:x64-windows pybind11:x64-windows
           
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
           
@@ -88,14 +88,14 @@ jobs:
           $vcpkgRoot = $env:VCPKG_ROOT
           $instPrefix = "$vcpkgRoot/installed/x64-windows" -replace '\\','/'
           $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
-
-          # We pass HDF5_ROOT and CMAKE_PREFIX_PATH so find_package(HDF5) finds the vcpkg files
+          
           & cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" `
             -DVCPKG_TARGET_TRIPLET="x64-windows" `
             -DCMAKE_PREFIX_PATH="$instPrefix" `
             -DHDF5_ROOT="$instPrefix" `
+            -Dpybind11_DIR="$instPrefix/share/pybind11" `
             -DBUILD_PYTHON_BINDINGS=ON `
             -DPYTHON_EXECUTABLE="$env:PYTHON_EXE"
 

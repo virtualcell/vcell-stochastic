@@ -89,9 +89,8 @@ jobs:
           $instPrefix = "$vcpkgRoot/installed/x64-windows" -replace '\\','/'
           $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
           
-          # Explicitly set paths for Python 3.10 to match your env
+          # Force Python paths for the old-style find_package(PythonLibs) in your CMakeLists.txt
           $pyRoot = $env:Python3_ROOT_DIR -replace '\\','/'
-          $pyExe = $env:PYTHON_EXE -replace '\\','/'
           $pyInclude = "$pyRoot/include"
           $pyLib = "$pyRoot/libs/python310.lib"
 
@@ -101,7 +100,7 @@ jobs:
             -DVCPKG_TARGET_TRIPLET="x64-windows" `
             -DCMAKE_PREFIX_PATH="$instPrefix" `
             -DHDF5_ROOT="$instPrefix" `
-            -DPYTHON_EXECUTABLE="$pyExe" `
+            -DPYTHON_EXECUTABLE="$($env:PYTHON_EXE -replace '\\','/')" `
             -DPYTHON_INCLUDE_DIR="$pyInclude" `
             -DPYTHON_LIBRARY="$pyLib" `
             -DBUILD_PYTHON_BINDINGS=ON

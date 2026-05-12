@@ -77,21 +77,24 @@ jobs:
           echo "Using Python executable: $PYTHON_EXE"
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$PYTHON_EXE"
 
-      - name: Configure (Windows) using vcpkg toolchain
+      - name: Configure (Windows)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          # Use forward slashes for the toolchain path to keep CMake happy
-          $vcpkgToolchain = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
-          $pyExe = $env:PYTHON_EXE
-
+          $vcpkgRoot = $env:VCPKG_ROOT
+          $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
+          
+          # Point directly to the vcpkg-generated config files for HDF5
+          $hdf5ConfigDir = "$vcpkgRoot/installed/x64-windows/share/hdf5" -replace '\\','/'
+      
           & cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" `
             -DVCPKG_TARGET_TRIPLET="x64-windows" `
+            -DHDF5_DIR="$hdf5ConfigDir" `
             -DBUILD_PYTHON_BINDINGS=ON `
-            -DPYTHON_EXECUTABLE="$pyExe"
-
+            -DPYTHON_EXECUTABLE="$env:PYTHON_EXE"
+            
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
 
       - name: Build (non-Windows)

@@ -89,7 +89,7 @@ jobs:
           $instPrefix = "$vcpkgRoot/installed/x64-windows" -replace '\\','/'
           $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
           
-          # The path to the Python install from setup-python
+          # Explicitly set paths for Python 3.10 to match your env
           $pyRoot = $env:Python3_ROOT_DIR -replace '\\','/'
           $pyExe = $env:PYTHON_EXE -replace '\\','/'
           $pyInclude = "$pyRoot/include"

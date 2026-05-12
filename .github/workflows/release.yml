@@ -157,37 +157,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          & cmake --build build --target help 2>&1 | Out-File -FilePath build-targets.txt -Force
-          if ($LASTEXITCODE -ne 0) { Write-Host "help target listing may have failed (continuing)" }
-          $content = @()
-          if (Test-Path build-targets.txt) { $content = Get-Content build-targets.txt -ErrorAction SilentlyContinue }
-          $targets = @()
-          foreach ($line in $content) {
-            if ($line -match '^\s+([A-Za-z0-9_:-]+)') { $targets += $matches[1] }
-          }
-          $targets = $targets | Sort-Object -Unique
-          Write-Host "Detected targets (excerpt):"
-          $targets | Select-Object -First 200 | ForEach-Object { Write-Host $_ }
-          $pyCandidates = $targets | Where-Object { $_ -match '(python|pybind|pywrap|pyext|vcell|bindings)' }
-          if ($pyCandidates -and $pyCandidates.Count -gt 0) {
-            Write-Host "Detected python-related targets: $($pyCandidates -join ', ')"
-            foreach ($t in $pyCandidates) {
-              Write-Host "Building target $t"
-              & cmake --build build --config Release --target $t -- /m
-              if ($LASTEXITCODE -ne 0) { Write-Host "Build of $t returned non-zero (continuing)" }
-            }
-          } else {
-            Write-Host "No python-like targets found; attempting fallback list..."
-            $fallback = @('python','python_bindings','pybind','VCellStochPython','vcell_python','vcellstoch_python','bindings')
-            foreach ($f in $fallback) {
-              if ($targets -contains $f) {
-                Write-Host "Building fallback target $f"
-                & cmake --build build --config Release --target $f -- /m
-                if ($LASTEXITCODE -ne 0) { Write-Host "Build of $f returned non-zero (continuing)" }
-              }
-            }
-          }
+          # The Visual Studio generator does not support --target help.
+          # ALL_BUILD (already run in the Build step) compiles everything including
+          # pybind targets. Nothing to do here.
+          Write-Host "Visual Studio generator builds all targets via ALL_BUILD (already done). Skipping target detection."
 
       - name: Install pytest and requirements (Unix)
         if: matrix.os != 'windows-latest'

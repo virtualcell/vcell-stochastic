@@ -40,7 +40,7 @@ jobs:
 
       - name: Export PYTHON_EXE (Windows)
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           $py = & python -c "import sys; print(sys.executable)"
           Add-Content -Path $env:GITHUB_ENV -Value "PYTHON_EXE=$py"
@@ -59,7 +59,7 @@ jobs:
 
       - name: Set up build environment (Windows) and install vcpkg
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           choco install -y 7zip
           Write-Host "Cloning vcpkg into $env:RUNNER_TEMP\vcpkg"
@@ -83,14 +83,14 @@ jobs:
 
       - name: Configure (Windows)
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           $vcpkgRoot = $env:VCPKG_ROOT
           $instPrefix = "$vcpkgRoot/installed/x64-windows" -replace '\\','/'
           $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
           
           # Force Python paths for the old-style find_package(PythonLibs) in your CMakeLists.txt
-          $pyRoot = $env:Python3_ROOT_DIR -replace '\\','/'
+          $pyRoot = $env:pythonLocation -replace '\\','/'
           $pyInclude = "$pyRoot/include"
           $pyLib = "$pyRoot/libs/python310.lib"
 
@@ -114,7 +114,7 @@ jobs:
 
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           & cmake --build build --config Release -- /m
           if ($LASTEXITCODE -ne 0) { Write-Host "cmake build returned non-zero (continuing)" }
@@ -155,7 +155,7 @@ jobs:
 
       - name: Detect and build Python binding targets (Windows)
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
           & cmake --build build --target help 2>&1 | Out-File -FilePath build-targets.txt -Force
@@ -198,7 +198,7 @@ jobs:
 
       - name: Install pytest and requirements (Windows)
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           & python -m pip install --upgrade pip
           & python -m pip install pytest
@@ -216,7 +216,7 @@ jobs:
 
       - name: Run Python tests (Windows) - pytest if present otherwise import smoke test
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           if (Test-Path Tests\python) {
             & python -m pytest Tests\python -q
@@ -252,7 +252,7 @@ jobs:
 
       - name: Collect Python artifacts (Windows) — copy built extensions and wheels from build/dist
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
           New-Item -ItemType Directory -Path artifacts\python -Force | Out-Null
@@ -278,7 +278,7 @@ jobs:
 
       - name: Collect build outputs (Windows)
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           if (Test-Path build\bin) { Copy-Item -Path build\bin\* -Destination artifacts -Recurse -Force }
@@ -291,11 +291,11 @@ jobs:
 
       - name: Package artifacts (Windows)
         if: matrix.os == 'windows-latest'
-        shell: powershell
+        shell: pwsh
         run: |
           $out = "vcell-stoch-${{ matrix.os }}.zip"
           if (Test-Path artifacts) {
-            Compress-Archive -Path artifacts\* -DestinationPath $out -Force
+            & 7z a -tzip $out artifacts\ | Out-Null
           } else {
             New-Item -Path $out -ItemType File | Out-Null
           }

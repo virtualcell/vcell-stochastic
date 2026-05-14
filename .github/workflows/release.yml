@@ -50,12 +50,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake libhdf5-dev libhdf5-serial-dev libhdf5-cpp-103 libcurl4-openssl-dev zip
+          pip install pybind11
 
       - name: Set up environment - macOS
         if: matrix.os == 'macos-latest'
         run: |
           brew update
           brew install cmake hdf5 zip
+          pip install pybind11
 
       - name: Set up build environment (Windows) and install vcpkg
         if: matrix.os == 'windows-latest'
@@ -79,7 +81,9 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           echo "Using Python executable: $PYTHON_EXE"
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOPTION_BUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$PYTHON_EXE"
+          PYBIN11_CMAKE_DIR=$(python -c "import pybind11; print(pybind11.get_cmake_dir())")
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOPTION_BUILD_PYTHON_BINDINGS=ON \
+            -DPYTHON_EXECUTABLE="$PYTHON_EXE" -Dpybind11_DIR="$PYBIND11_CMAKE_DIR"
 
       - name: Configure (Windows)
         if: matrix.os == 'windows-latest'
@@ -88,6 +92,7 @@ jobs:
           $vcpkgRoot = $env:VCPKG_ROOT
           $instPrefix = "$vcpkgRoot/installed/x64-windows" -replace '\\','/'
           $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
+          $pybind11Dir = "$instPrefix/share/pybind11" -replace '\\','/'
           
           # Force Python paths for the old-style find_package(PythonLibs) in your CMakeLists.txt
           $pyRoot = $env:pythonLocation -replace '\\','/'
@@ -103,6 +108,7 @@ jobs:
             -DPYTHON_EXECUTABLE="$($env:PYTHON_EXE -replace '\\','/')" `
             -DPYTHON_INCLUDE_DIR="$pyInclude" `
             -DPYTHON_LIBRARY="$pyLib" `
+            -Dpybind11_DIR="$pybind11Dir" `
             -DOPTION_BUILD_PYTHON_BINDINGS=ON
 
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }

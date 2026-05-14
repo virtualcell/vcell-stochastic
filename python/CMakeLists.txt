@@ -12,15 +12,23 @@ pybind11_add_module(vcellstochastic_py
 target_link_libraries(vcellstochastic_py
         PRIVATE
         VCellStochLib
-        Python3::Python
 )
 
 target_compile_features(vcellstochastic_py PRIVATE cxx_std_14)
 
 target_include_directories(vcellstochastic_py PRIVATE
-        ${Python3_INCLUDE_DIRS}
         ${PROJECT_SOURCE_DIR}/VCellStoch/include
         ${PROJECT_SOURCE_DIR}/ExpressionParser
         ${PROJECT_SOURCE_DIR}/vcommons/include
         ${PROJECT_SOURCE_DIR}/VCellMessaging/include
 )
+
+if(BUILD_TESTING)
+    add_test(
+        NAME TestPythonBindings
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test_binding.py
+    )
+    set_tests_properties(TestPythonBindings PROPERTIES
+        ENVIRONMENT "PYTHONPATH=${CMAKE_BINARY_DIR}/bin:${CMAKE_SOURCE_DIR}/python/src"
+    )
+endif()

@@ -10,11 +10,13 @@ The VCell Stochastic solver implements stochastic simulation algorithms (Gibson/
 
 The project is organized as follows:
 - CMakeLists.txt: Root build configuration
+- CMakePresets.json: Named build presets for common configurations
 - VCellStoch: Main solver library and executable with include and src subdirectories
 - ExpressionParser: Expression parsing library dependency
 - vcommons: Common utilities dependency
 - VCellMessaging: Messaging support dependency
-- Tests: Unit tests
+- Tests: C++ unit tests
+- python: Optional Python bindings (pybind11) and Python wrapper classes
 - cmake: CMake modules
 
 ## Building
@@ -25,13 +27,28 @@ The project is organized as follows:
 - C++14 compatible compiler
 - HDF5 library with C and C++ components
 - libcurl (optional, for messaging support)
+- Python 3 with development headers and pybind11 (optional, for Python bindings)
 
 ### Build Instructions
 
-#### Linux/macOS
+#### Linux (with preset)
+
+    cmake --preset linux-ninja
+    cmake --build --preset linux-ninja
+
+#### macOS (with preset)
+
+    cmake --preset macos-ninja
+    cmake --build --preset macos-ninja
+
+Preset builds place output in `build/<preset-name>/bin/`.
+
+#### Linux/macOS (without preset)
 
     cmake -S . -B build
     cmake --build build --config Release
+
+Output is placed in `build/bin/`.
 
 #### Windows
 
@@ -54,22 +71,64 @@ The build produces:
 
 ### Build Options
 
-- BUILD_SHARED_LIBS: Build shared libraries instead of static (default: OFF)
-- BUILD_TESTING: Enable smoke tests (default: ON)
+- `BUILD_SHARED_LIBS`: Build shared libraries instead of static (default: OFF)
+- `BUILD_TESTING`: Enable tests (default: ON)
+- `OPTION_BUILD_PYTHON_BINDINGS`: Build Python bindings via pybind11 (default: OFF)
+- `OPTION_TARGET_MESSAGING`: Enable messaging support via libcurl (default: OFF)
+
+### Python Bindings
+
+Use the dedicated presets to build with Python bindings enabled:
+
+#### Linux
+
+    cmake --preset linux-ninja-pybind
+    cmake --build --preset linux-ninja-pybind
+
+#### macOS
+
+    cmake --preset macos-ninja-pybind
+    cmake --build --preset macos-ninja-pybind
+
+#### Windows
+
+    cmake --preset windows-msvc-pybind
+    cmake --build --preset windows-msvc-pybind
+
+Or add `-DOPTION_BUILD_PYTHON_BINDINGS=ON` to any manual configure command.
+
+The compiled extension (`vcellstochastic_py`) is written to `build/<preset-name>/bin/`. A higher-level Python wrapper is provided in `python/src/vcellstochastic.py`:
+
+```python
+from vcellstochastic import GibsonSolver, TrialStats
+
+solver = GibsonSolver("model.txt", "output.h5")
+solver.run()
+```
 
 ## Testing
 
-Tests are located in the Tests directory and use a custom test framework (no external test library required).
+C++ tests are in the `Tests/` directory and use a custom test framework (no external test library required). When Python bindings are built, `test_binding.py` is also registered as a CTest test (`TestPythonBindings`).
 
 ### Running Tests
 
-#### Linux/macOS
-
-Configure with testing enabled, then run:
+#### Linux/macOS (C++ tests only)
 
     cmake -S . -B build -DBUILD_TESTING=ON
     cmake --build build
     ctest --test-dir build --verbose
+
+#### Linux/macOS (C++ tests + Python binding test)
+
+    cmake -S . -B build -DBUILD_TESTING=ON -DOPTION_BUILD_PYTHON_BINDINGS=ON
+    cmake --build build
+    ctest --test-dir build --verbose
+
+Or use the pybind preset (which enables `OPTION_BUILD_PYTHON_BINDINGS` automatically):
+
+    cmake --preset linux-ninja-pybind
+    cmake --build --preset linux-ninja-pybind
+    ctest --test-dir build/linux-ninja-pybind --verbose
 
 ##### if macOS has HDF5 library issues:
 
@@ -113,10 +172,11 @@ With messaging support (if built with OPTION_TARGET_MESSAGING):
 Link against libVCellStochLib.a (Linux/macOS) or VCellStochLib.lib (Windows) and include the headers from VCellStoch/include/.
 
 Key classes:
-- Gibson: Main Gibson algorithm implementation
-- StochModel: Stochastic model representation
-- Jump: Reaction jump representation
-- StochVar: Stochastic variable representation
+- `Gibson`: Main Gibson (Next Reaction Method) algorithm implementation
+- `StochModel`: Stochastic model representation (base class)
+- `MultiTrialStats`: Accumulates mean, variance, min, and max statistics across multiple simulation trials; writes results to HDF5
+- `Jump`: Reaction jump representation
+- `StochVar`: Stochastic variable representation
 
 ## Cleanup
 

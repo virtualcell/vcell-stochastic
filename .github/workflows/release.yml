@@ -51,6 +51,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake libhdf5-dev libhdf5-serial-dev libhdf5-cpp-103 libcurl4-openssl-dev zip
           pip install pybind11
+          echo "PYBIND11_CMAKE_DIR=$(python -c 'import pybind11; print(pybind11.get_cmake_dir())')" >> $GITHUB_ENV
 
       - name: Set up environment - macOS
         if: matrix.os == 'macos-latest'
@@ -58,6 +59,7 @@ jobs:
           brew update
           brew install cmake hdf5 zip
           pip install pybind11
+          echo "PYBIND11_CMAKE_DIR=$(python -c 'import pybind11; print(pybind11.get_cmake_dir())')" >> $GITHUB_ENV
 
       - name: Set up build environment (Windows) and install vcpkg
         if: matrix.os == 'windows-latest'
@@ -81,10 +83,11 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           echo "Using Python executable: $PYTHON_EXE"
-          PYBIN11_CMAKE_DIR=$(python -c "import pybind11; print(pybind11.get_cmake_dir())")
+          echo "Using pybind11 CMake dir: $PYBIND11_CMAKE_DIR"
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOPTION_BUILD_PYTHON_BINDINGS=ON \
-            -DPYTHON_EXECUTABLE="$PYTHON_EXE" -Dpybind11_DIR="$PYBIND11_CMAKE_DIR"
-
+            -DPYTHON_EXECUTABLE="$PYTHON_EXE" \
+            -Dpybind11_DIR="$PYBIND11_CMAKE_DIR"
+            
       - name: Configure (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh

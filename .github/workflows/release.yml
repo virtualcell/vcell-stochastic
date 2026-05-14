@@ -79,7 +79,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           echo "Using Python executable: $PYTHON_EXE"
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$PYTHON_EXE"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOPTION_BUILD_PYTHON_BINDINGS=ON -DPYTHON_EXECUTABLE="$PYTHON_EXE"
 
       - name: Configure (Windows)
         if: matrix.os == 'windows-latest'
@@ -103,7 +103,7 @@ jobs:
             -DPYTHON_EXECUTABLE="$($env:PYTHON_EXE -replace '\\','/')" `
             -DPYTHON_INCLUDE_DIR="$pyInclude" `
             -DPYTHON_LIBRARY="$pyLib" `
-            -DBUILD_PYTHON_BINDINGS=ON
+            -DOPTION_BUILD_PYTHON_BINDINGS=ON
 
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
 

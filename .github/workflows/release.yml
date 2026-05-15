@@ -229,6 +229,7 @@ jobs:
             find dist -type f -not -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
           fi
           find build -type f \( -iname "*.so" -o -iname "*.dylib" -o -iname "*.pyd" -o -iname "*.dll" \) -exec cp '{}' artifacts/python/ \; || true
+          cp python/src/vcellstochastic.py artifacts/python/
           echo "Collected Python artifacts (Unix):"
           ls -R artifacts/python || true
 
@@ -244,6 +245,7 @@ jobs:
           Get-ChildItem -Path build -Recurse -Include *.pyd,*.dll,*.so,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
           }
+          Copy-Item -Path python\src\vcellstochastic.py -Destination artifacts\python -Force
           Write-Host "Collected Python artifacts (Windows):"
           if (Test-Path artifacts\python) { Get-ChildItem artifacts\python -Recurse -Force | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No python artifacts found" }
 

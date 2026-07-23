@@ -25,6 +25,15 @@ jobs:
         os: [ubuntu-22.04, macos-latest, windows-latest]
 
     steps:
+      - name: Upload CMake logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-error-logs
+          path: |
+            build/CMakeFiles/CMakeError.log
+            build/CMakeFiles/CMakeOutput.log
+      
       - name: Checkout
         uses: actions/checkout@v4
         with:

@@ -12,9 +12,9 @@ set(TEST_SOURCES
 add_executable(TestVCellStoch ${TEST_SOURCES})
 target_include_directories(TestVCellStoch PRIVATE
     ${CMAKE_SOURCE_DIR}/VCellStoch/include
-    ${CMAKE_SOURCE_DIR}/ExpressionParser
+    ${CMAKE_SOURCE_DIR}/vcell-expressionparser/include
     ${CMAKE_SOURCE_DIR}/vcommons/include
-    ${CMAKE_SOURCE_DIR}/VCellMessaging/include
+    ${CMAKE_SOURCE_DIR}/vcell-messaging/include
 )
 
 target_link_libraries(TestVCellStoch PRIVATE

@@ -47,7 +47,7 @@ target_include_directories(VCellStochLib PUBLIC ${HDF5_INCLUDE_DIRS})
 
 target_link_libraries(VCellStochLib
         PUBLIC
-        ExpressionParser
+        vcellexpressionparser
         vcommons
         vcellmessaging
 )

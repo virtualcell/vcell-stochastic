@@ -85,10 +85,10 @@ if(OPTION_BUILD_PYTHON_BINDINGS)
     find_package(pybind11 CONFIG REQUIRED)
 endif()
 
-# Dependencies
-add_subdirectory(ExpressionParser)
+# Dependencies (vcell-expressionparser and vcell-messaging are git submodules)
+add_subdirectory(vcell-expressionparser)
 add_subdirectory(vcommons)
-add_subdirectory(VCellMessaging)
+add_subdirectory(vcell-messaging)
 add_subdirectory(VCellStoch)
 
 # Testing

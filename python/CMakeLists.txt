@@ -18,9 +18,9 @@ target_compile_features(vcellstochastic_py PRIVATE cxx_std_14)
 
 target_include_directories(vcellstochastic_py PRIVATE
         ${PROJECT_SOURCE_DIR}/VCellStoch/include
-        ${PROJECT_SOURCE_DIR}/ExpressionParser
+        ${PROJECT_SOURCE_DIR}/vcell-expressionparser/include
         ${PROJECT_SOURCE_DIR}/vcommons/include
-        ${PROJECT_SOURCE_DIR}/VCellMessaging/include
+        ${PROJECT_SOURCE_DIR}/vcell-messaging/include
 )
 
 if(BUILD_TESTING)

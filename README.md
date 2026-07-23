@@ -12,12 +12,16 @@ The project is organized as follows:
 - CMakeLists.txt: Root build configuration
 - CMakePresets.json: Named build presets for common configurations
 - VCellStoch: Main solver library and executable with include and src subdirectories
-- ExpressionParser: Expression parsing library dependency
+- vcell-expressionparser: Expression parsing library dependency (git submodule)
 - vcommons: Common utilities dependency
-- VCellMessaging: Messaging support dependency
+- vcell-messaging: Messaging support dependency (git submodule)
 - Tests: C++ unit tests
 - python: Optional Python bindings (pybind11) and Python wrapper classes
 - cmake: CMake modules
+
+`vcell-expressionparser` and `vcell-messaging` are git submodules. Clone with
+`git clone --recurse-submodules`, or after cloning run
+`git submodule update --init --recursive`.
 
 ## Building
 

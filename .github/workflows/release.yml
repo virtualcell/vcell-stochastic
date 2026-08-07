@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Upload CMake logs on failure
@@ -39,10 +39,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up Python 3.10
+      - name: Set up Python 3.12
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Export PYTHON_EXE (Unix)
         if: matrix.os != 'windows-latest'
@@ -57,7 +57,7 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "PYTHON_EXE=$py"
 
       - name: Set up environment - Linux
-        if: matrix.os == 'ubuntu-22.04'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake libhdf5-dev libhdf5-serial-dev libhdf5-cpp-103 libcurl4-openssl-dev zip gcc-13 g++-13
@@ -305,12 +305,12 @@ jobs:
 
   create_release:
     needs: build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
-          name: vcell-stoch-ubuntu-22.04
+          name: vcell-stoch-ubuntu-latest
           path: ./artifacts/linux
 
       - name: Download macOS artifact
@@ -352,8 +352,8 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/linux/vcell-stoch-ubuntu-22.04.zip
-          asset_name: vcell-stoch-ubuntu-22.04.zip
+          asset_path: ./artifacts/linux/vcell-stoch-ubuntu-latest.zip
+          asset_name: vcell-stoch-ubuntu-latest.zip
           asset_content_type: application/zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

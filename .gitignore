@@ -46,6 +46,10 @@ cmake-build-debug/
 .vscode/
 .DS_Store
 
+# Python
+__pycache__/
+*.py[cod]
+
 # CMake temporary files
 CMakeCache.txt
 CMakeFiles/

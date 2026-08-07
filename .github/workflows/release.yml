@@ -60,7 +60,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libhdf5-dev libhdf5-serial-dev libhdf5-cpp-103 libcurl4-openssl-dev zip gcc-13 g++-13
+          sudo apt-get install -y build-essential cmake libhdf5-dev libhdf5-serial-dev libhdf5-cpp-103-1t64 libcurl4-openssl-dev zip gcc-13 g++-13
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 --slave /usr/bin/g++ g++ /usr/bin/g++-13
           pip install pybind11
           echo "PYBIND11_CMAKE_DIR=$(python -c 'import pybind11; print(pybind11.get_cmake_dir())')" >> $GITHUB_ENV

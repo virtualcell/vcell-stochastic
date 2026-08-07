@@ -21,26 +21,18 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - name: Upload CMake logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cmake-error-logs
-          path: |
-            build/CMakeFiles/CMakeError.log
-            build/CMakeFiles/CMakeOutput.log
-      
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -97,6 +89,7 @@ jobs:
           echo "Using Python executable: $PYTHON_EXE"
           echo "Using pybind11 CMake dir: $PYBIND11_CMAKE_DIR"
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOPTION_BUILD_PYTHON_BINDINGS=ON \
+            -DPython3_EXECUTABLE="$PYTHON_EXE" \
             -DPYTHON_EXECUTABLE="$PYTHON_EXE" \
             -Dpybind11_DIR="$PYBIND11_CMAKE_DIR"
             
@@ -113,13 +106,17 @@ jobs:
           if (-not $vsPath) { throw 'Visual Studio with C++ tools not found' }
           $vsDevCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
           
-          # Force Python paths for the old-style find_package(PythonLibs) in your CMakeLists.txt
+          # Force Python paths for the old-style find_package(PythonLibs) in your CMakeLists.txt.
+          # Derive the import-library name from the interpreter actually installed by
+          # actions/setup-python instead of hard-coding a version (was python310.lib).
           $pyRoot = $env:pythonLocation -replace '\\','/'
           $pyInclude = "$pyRoot/include"
-          $pyLib = "$pyRoot/libs/python310.lib"
+          $pyTag = & python -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')"
+          $pyLib = "$pyRoot/libs/python$pyTag.lib"
+          if (-not (Test-Path $pyLib)) { throw "Python import library not found: $pyLib" }
           $pyExe = $env:PYTHON_EXE -replace '\\','/'
 
-          cmd /c "`"$vsDevCmd`" -arch=x64 && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=`"$vcpkgToolchain`" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_PREFIX_PATH=`"$instPrefix`" -DHDF5_ROOT=`"$instPrefix`" -DPYTHON_EXECUTABLE=`"$pyExe`" -DPYTHON_INCLUDE_DIR=`"$pyInclude`" -DPYTHON_LIBRARY=`"$pyLib`" -Dpybind11_DIR=`"$pybind11Dir`" -DOPTION_BUILD_PYTHON_BINDINGS=ON"
+          cmd /c "`"$vsDevCmd`" -arch=x64 && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=`"$vcpkgToolchain`" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_PREFIX_PATH=`"$instPrefix`" -DHDF5_ROOT=`"$instPrefix`" -DPython3_EXECUTABLE=`"$pyExe`" -DPYTHON_EXECUTABLE=`"$pyExe`" -DPYTHON_INCLUDE_DIR=`"$pyInclude`" -DPYTHON_LIBRARY=`"$pyLib`" -Dpybind11_DIR=`"$pybind11Dir`" -DOPTION_BUILD_PYTHON_BINDINGS=ON"
 
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
 
@@ -302,6 +299,17 @@ jobs:
           path: |
             vcell-stoch-${{ matrix.os }}.zip
             artifacts
+
+      # Must stay last: an `if: failure()` step only fires once an earlier step has failed.
+      - name: Upload CMake logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-error-logs-${{ matrix.os }}
+          path: |
+            build/CMakeFiles/CMakeError.log
+            build/CMakeFiles/CMakeOutput.log
+          if-no-files-found: ignore
 
   create_release:
     needs: build

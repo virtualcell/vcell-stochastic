@@ -38,7 +38,7 @@ Gibson::Gibson()
     generator = new std::mt19937_64();
     distribution = new std::uniform_real_distribution<double>(0.0,1.0);
 #ifdef USE_MESSAGING
-	SimulationMessaging::create();
+	SimulationMessaging::getInstVar(); // creates the singleton on first use
 #endif
 }//end of constructor Gibson()
 
@@ -506,7 +506,7 @@ int Gibson::finalizeSampleRow(int savedSampleCount,double simtime){
         if(bMultiButNotHisto) {
             double percentile =  static_cast<double>(currMultiNonHistoIter)  / static_cast<double>(numMultiNonHisto);
 #ifdef USE_MESSAGING
-            SimulationMessaging::getInstVar()->setWorkerEvent(new WorkerEvent(JOB_PROGRESS, percentile, currMultiNonHistoIter));
+            SimulationMessaging::getInstVar()->setWorkerEvent(JobEvent::JOB_PROGRESS, percentile, currMultiNonHistoIter);
 #else
             printf("[[[progress:%lg%%]]]", percentile * 100);
             fflush(stdout);
@@ -514,7 +514,7 @@ int Gibson::finalizeSampleRow(int savedSampleCount,double simtime){
         } else if(NUM_TRIAL > 1){//histogram
 			double percentile =  static_cast<double>(savedSampleCount)  / NUM_TRIAL;
 #ifdef USE_MESSAGING
-			SimulationMessaging::getInstVar()->setWorkerEvent(new WorkerEvent(JOB_PROGRESS, percentile, savedSampleCount));
+			SimulationMessaging::getInstVar()->setWorkerEvent(JobEvent::JOB_PROGRESS, percentile, savedSampleCount);
 #else
 			printf("[[[progress:%lg%%]]]", percentile * 100);
 			fflush(stdout);
@@ -522,8 +522,8 @@ int Gibson::finalizeSampleRow(int savedSampleCount,double simtime){
 		}else{//single_trajectory
 			double percentile = (simtime/ENDING_TIME);
 #ifdef USE_MESSAGING
-			SimulationMessaging::getInstVar()->setWorkerEvent(new WorkerEvent(JOB_PROGRESS, percentile, simtime) );
-			SimulationMessaging::getInstVar()->setWorkerEvent(new WorkerEvent(JOB_DATA, percentile, simtime) );
+			SimulationMessaging::getInstVar()->setWorkerEvent(JobEvent::JOB_PROGRESS, percentile, simtime);
+			SimulationMessaging::getInstVar()->setWorkerEvent(JobEvent::JOB_DATA, percentile, simtime);
 #else
 			printf("[[[progress:%lg%%]]]", percentile * 100);
 			printf("[[[data:%lg]]]", simtime);
@@ -662,7 +662,7 @@ void Gibson::march(){
 #ifdef USE_MESSAGING
 	std::cout << "Arrived at goalpost 6" << std::endl;
 	if (!SimulationMessaging::getInstVar()->isStopRequested()) {
-		SimulationMessaging::getInstVar()->setWorkerEvent(new WorkerEvent(JOB_COMPLETED, 1, ENDING_TIME));
+		SimulationMessaging::getInstVar()->setWorkerEvent(JobEvent::JOB_COMPLETED, 1, ENDING_TIME);
 	}
 #endif
 }//end of method march()

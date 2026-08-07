@@ -20,18 +20,15 @@ static void printUsage() {
 }
 
 static void loadJMSInfo(istream& ifsInput, int taskID) {
-	char *broker = new char[256];
-	char *smqusername = new char[256];
-	char *password = new char[256];
-	char *qname = new char[256];
-	char *tname = new char[256];
-	char *vcusername = new char[256];
+	// std::string rather than char[] buffers: C++20 dropped `istream >> char*`, and the
+	// messaging library now pulls the whole target up to C++20.
+	string broker, smqusername, password, qname, tname, vcusername;
 	string nextToken;
-	int simKey, jobIndex;
+	int simKey = 0, jobIndex = 0;
 
-	while (!ifsInput.eof()) {			
+	while (!ifsInput.eof()) {
 		nextToken = "";
-		ifsInput >> nextToken;			
+		ifsInput >> nextToken;
 		if (nextToken.size() == 0) {
 			continue;
 		} else if (nextToken[0] == '#') {
@@ -40,20 +37,14 @@ static void loadJMSInfo(istream& ifsInput, int taskID) {
 		}  else if (nextToken == "JMS_PARAM_END") {
 			break;
 		} else if (nextToken == "JMS_BROKER") {
-			memset(broker, 0, 256 * sizeof(char));
 			ifsInput >> broker;
 		} else if (nextToken == "JMS_USER") {
-			memset(smqusername, 0, 256 * sizeof(char));
-			memset(password, 0, 256 * sizeof(char));
 			ifsInput >> smqusername >> password;
 		} else if (nextToken == "JMS_QUEUE") {
-			memset(qname, 0, 256 * sizeof(char));
 			ifsInput >> qname;
 		} else if (nextToken == "JMS_TOPIC") {
-			memset(tname, 0, 256 * sizeof(char));
 			ifsInput >> tname;
 		} else if (nextToken == "VCELL_USER") {
-			memset(vcusername, 0, 256 * sizeof(char));
 			ifsInput >> vcusername;
 		} else if (nextToken == "SIMULATION_KEY") {
 			ifsInput >> simKey;
@@ -64,11 +55,13 @@ static void loadJMSInfo(istream& ifsInput, int taskID) {
 		} 
 	}
 
-#ifdef USE_MESSAGING	
+#ifdef USE_MESSAGING
 	if (taskID >= 0) {
-		SimulationMessaging::create(broker, smqusername, password, qname, tname, vcusername, simKey, jobIndex, taskID);
+		// the broker is reached over HTTP now, so the queue/topic names and JMS
+		// credentials parsed above are no longer part of the handshake
+		SimulationMessaging::getInstVar()->initialize_curl_messaging(false, broker.c_str(), vcusername.c_str(), simKey, jobIndex, taskID);
 	} else {
-		SimulationMessaging::create();
+		SimulationMessaging::getInstVar();
 	}
 #endif
 }
@@ -77,11 +70,11 @@ static void errExit(int returnCode, string& errorMsg) {
 #ifdef USE_MESSAGING
 	if (returnCode != 0) {	
 		if (!SimulationMessaging::getInstVar()->isStopRequested()) {
-			SimulationMessaging::getInstVar()->setWorkerEvent(new WorkerEvent(JOB_FAILURE, errorMsg.c_str()));
-		}	
+			SimulationMessaging::getInstVar()->setWorkerEvent(JobEvent::JOB_FAILURE, errorMsg.c_str());
+		}
 	}
-	SimulationMessaging::getInstVar()->waitUntilFinished();
-	delete SimulationMessaging::getInstVar();
+	// waits for the queue thread, then destroys the singleton -- the destructor is no longer public
+	SimulationMessaging::cleanupInstanceVar();
 #else
 	if (returnCode != 0) {	
 		cerr << errorMsg << endl;
@@ -142,9 +135,7 @@ int main(int argc, char *argv[])
 				continue;
 			} else if (nextToken == "JMS_PARAM_BEGIN") {
 				loadJMSInfo(inputstream, taskID);
-#ifdef USE_MESSAGING
-				SimulationMessaging::getInstVar()->start(); // start the thread
-#endif				
+				// no start() any more -- MessageEventManager owns the queue thread
 				break;
 			}
 		}

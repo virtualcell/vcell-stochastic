@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
 project(VCellStochastic VERSION 1.0.0 LANGUAGES CXX C)
 
 # C++ standard
@@ -21,6 +21,12 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(OPTION_TARGET_MESSAGING "Enable messaging support" OFF)
 option(OPTION_BUILD_PYTHON_BINDINGS "Build Python bindings using pybind11" OFF)
+
+# scikit-build-core (pip wheel / cibuildwheel) only ever builds this project
+# to produce the Python extension module.
+if(SKBUILD)
+    set(OPTION_BUILD_PYTHON_BINDINGS ON CACHE BOOL "Build Python bindings using pybind11" FORCE)
+endif()
 
 # Platform-specific compatibility
 if(MSVC)
@@ -54,7 +60,14 @@ endif()
 
 # Optional Python binding dependencies
 if(OPTION_BUILD_PYTHON_BINDINGS)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+    if(SKBUILD)
+        # A wheel's extension module only needs Development.Module; the full
+        # Development component additionally requires a libpython to embed,
+        # which the manylinux/cibuildwheel images do not ship.
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
+    else()
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+    endif()
     find_package(pybind11 CONFIG REQUIRED)
 endif()
 
@@ -77,12 +90,6 @@ if(OPTION_USE_PARQUET)
     message(STATUS "Multi-trial output format: Parquet")
 else()
     message(STATUS "Multi-trial output format: HDF5")
-endif()
-
-# Optional Python binding dependencies
-if(OPTION_BUILD_PYTHON_BINDINGS)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-    find_package(pybind11 CONFIG REQUIRED)
 endif()
 
 # Dependencies (vcell-expressionparser and vcell-messaging are git submodules)

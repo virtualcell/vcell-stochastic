@@ -27,7 +27,7 @@ The project is organized as follows:
 
 ### Prerequisites
 
-- CMake 3.13 or higher
+- CMake 3.15 or higher (3.18 or higher to build the Python package)
 - C++14 compatible compiler
 - HDF5 library with C and C++ components
 - libcurl (optional, for messaging support)
@@ -154,6 +154,64 @@ Or use the pybind preset (which enables `OPTION_BUILD_PYTHON_BINDINGS` automatic
 Alternatively, run the test executable directly:
 
     .\build\windows-msvc-hdf5\bin\TestVCellStoch.exe
+
+## Python Package
+
+The bindings are also packaged as a Python wheel named `pyvcell_stochastic`,
+built with [scikit-build-core](https://scikit-build-core.readthedocs.io/) and
+[cibuildwheel](https://cibuildwheel.pypa.io/). Installing it gives you the
+`vcellstochastic` wrapper module and the `vcellstochastic_py` extension without
+needing to set `PYTHONPATH` at all.
+
+### Installing from a checkout
+
+Make sure the submodules are present, and point `CMAKE_PREFIX_PATH` at HDF5 if
+it is not in a default location:
+
+    git submodule update --init --recursive
+    CMAKE_PREFIX_PATH=/opt/hdf5 pip install .
+
+Then:
+
+    from vcellstochastic import GibsonSolver, TrialStats
+
+    stats = TrialStats(num_vars=2, num_time_points=5)
+
+`pip install .` turns on `OPTION_BUILD_PYTHON_BINDINGS` by itself, and only the
+extension and its wrapper module go into the wheel — the static libraries,
+headers and the `VCellStoch` executable are not included.
+
+### Building a wheel locally
+
+    CMAKE_PREFIX_PATH=/opt/hdf5 python -m build
+
+This produces an unrepaired wheel in `dist/` that still links against the HDF5
+installed on the build machine. To make it self-contained, run the platform's
+repair tool (`delocate-wheel` on macOS, `auditwheel repair` on Linux,
+`delvewheel repair` on Windows) — which is what cibuildwheel does automatically.
+
+### Building release wheels
+
+The `Build and Publish Python Package` workflow builds wheels for CPython
+3.9–3.12 on Linux (manylinux_2_28 x86_64), Windows (x64) and macOS (arm64),
+plus a source distribution. Run it from the Actions tab; supplying a `version`
+input also creates the matching GitHub release. Publishing to PyPI is wired up
+but commented out.
+
+Each platform gets its HDF5 differently: the manylinux container installs
+`hdf5-devel` from EPEL, macOS uses Homebrew, and Windows uses vcpkg. The repair
+step then vendors HDF5 into each wheel.
+
+### Running the Python tests
+
+`python/tests/` holds the pytest suite that cibuildwheel runs against every
+wheel it builds. Against an installed wheel:
+
+    pip install .[test]
+    pytest python/tests
+
+This is separate from `test_binding.py`, which CTest runs against the in-tree
+build via `PYTHONPATH`.
 
 ## Usage
 

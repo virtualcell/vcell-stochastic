@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.8", "pybind11"]
+requires = ["scikit-build-core>=0.10", "pybind11"]
 build-backend = "scikit_build_core.build"
 
 
@@ -39,6 +39,16 @@ install.components = ["python"]
 cmake.define.BUILD_TESTING = "OFF"
 # Development.Module requires CMake 3.18.
 cmake.version = ">=3.18"
+# Build in-tree rather than in a temporary directory. On Windows the temp
+# directory cleanup raced with lingering MSBuild worker nodes still holding a
+# handle on build/VCellStoch, and TemporaryDirectory's retry loop turned that
+# PermissionError into a RecursionError that failed the build after the wheel
+# had already been made successfully.
+build-dir = "build/{wheel_tag}"
+# The wheel only needs the extension module, so don't spend four MSVC builds of
+# the VCellStoch executable per platform on something install.components
+# excludes anyway.
+build.targets = ["vcellstochastic_py"]
 
 
 [tool.pytest.ini_options]

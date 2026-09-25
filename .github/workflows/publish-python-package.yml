@@ -59,7 +59,10 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: >-
             CMAKE_PREFIX_PATH=${{ env.HDF5_PREFIX }}
             MACOSX_DEPLOYMENT_TARGET=14.0
-          CIBW_ENVIRONMENT_WINDOWS: 'CMAKE_ARGS="-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_TOOLCHAIN }} -DVCPKG_TARGET_TRIPLET=x64-windows" PATH="$PATH;${{ env.VCPKG_BIN }}"'
+          # MSBUILDDISABLENODEREUSE stops MSBuild leaving worker nodes alive
+          # after the build; they hold handles on the build directory and break
+          # its cleanup.
+          CIBW_ENVIRONMENT_WINDOWS: 'CMAKE_ARGS="-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_TOOLCHAIN }} -DVCPKG_TARGET_TRIPLET=x64-windows" PATH="$PATH;${{ env.VCPKG_BIN }}" MSBUILDDISABLENODEREUSE=1'
 
       - uses: actions/upload-artifact@v4
         with:

@@ -3,12 +3,6 @@ if(OPTION_TARGET_MESSAGING)
     find_package(CURL REQUIRED)
 endif()
 
-# Optional Python binding dependencies
-if(OPTION_BUILD_PYTHON_BINDINGS)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-    find_package(pybind11 CONFIG REQUIRED)
-endif()
-
 cmake_minimum_required(VERSION 3.10)
 project(VCellStoch LANGUAGES CXX)
 

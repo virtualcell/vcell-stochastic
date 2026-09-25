@@ -73,3 +73,9 @@ vcommons/CMakeFiles/
 vcommons/cmake_install.cmake
 vcommons/Makefile
 vcommons/libvcommons.a
+
+# Python packaging
+dist/
+wheelhouse/
+*.egg-info/
+.pytest_cache/

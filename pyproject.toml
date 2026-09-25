@@ -1,0 +1,70 @@
+[build-system]
+requires = ["scikit-build-core>=0.8", "pybind11"]
+build-backend = "scikit_build_core.build"
+
+
+[project]
+name = "pyvcell_stochastic"
+version = "0.1.0"
+description = "Virtual Cell stochastic (Gibson) solver"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Jim Schaff", email = "schaff@uchc.edu" },
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+
+[tool.scikit-build]
+# Both the extension and the vcellstochastic.py wrapper are installed by
+# python/CMakeLists.txt, so there is no package directory to auto-discover.
+wheel.packages = []
+wheel.expand-macos-universal-tags = true
+# Only the "python" install component goes into the wheel; the static
+# libraries, headers and the VCellStoch executable installed by the other
+# CMakeLists.txt files are deliberately left out.
+install.components = ["python"]
+cmake.define.BUILD_TESTING = "OFF"
+# Development.Module requires CMake 3.18.
+cmake.version = ">=3.18"
+
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
+xfail_strict = true
+log_cli_level = "INFO"
+filterwarnings = [
+    "error",
+]
+testpaths = ["python/tests"]
+
+
+[tool.cibuildwheel]
+build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*"]
+skip = ["*-musllinux_*", "*_i686"]
+test-command = "pytest {project}/python/tests"
+test-extras = ["test"]
+test-skip = ["*universal2:arm64"]
+build-verbosity = 1
+archs = ["native"]
+
+[tool.cibuildwheel.linux]
+# Linux wheels are built inside the manylinux container, so HDF5 has to be
+# installed there rather than on the runner. auditwheel then vendors libhdf5
+# into the wheel.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "dnf install -y epel-release && dnf config-manager --set-enabled powertools && dnf install -y hdf5-devel"

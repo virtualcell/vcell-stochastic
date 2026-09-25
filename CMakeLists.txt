@@ -45,7 +45,11 @@ elseif(APPLE)
         set(CMAKE_OSX_ARCHITECTURES "x86_64")
     endif()
 elseif(UNIX)
-    add_compile_options(-m64)
+    # -m64 is an x86-only option; GCC rejects it outright on other
+    # architectures, such as the aarch64 manylinux images.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$")
+        add_compile_options(-m64)
+    endif()
     add_compile_options(-fpermissive)
 endif()
 

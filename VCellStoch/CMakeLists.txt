@@ -3,7 +3,8 @@ if(OPTION_TARGET_MESSAGING)
     find_package(CURL REQUIRED)
 endif()
 
-cmake_minimum_required(VERSION 3.10)
+# 3.15+: CMP0091, so CMAKE_MSVC_RUNTIME_LIBRARY (the static CRT of the Windows release) applies here too
+cmake_minimum_required(VERSION 3.15)
 project(VCellStoch LANGUAGES CXX)
 
 set(LIB_SRC_FILES

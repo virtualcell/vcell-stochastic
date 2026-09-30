@@ -36,14 +36,9 @@ if(MSVC)
             _CRT_SECURE_NO_WARNINGS
     )
 elseif(APPLE)
-    execute_process(COMMAND uname -m OUTPUT_VARIABLE PROCESSOR_ARCHITECTURE OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(PROCESSOR_ARCHITECTURE STREQUAL "arm64")
-        add_compile_definitions(__arm64__)
-        set(CMAKE_OSX_ARCHITECTURES "arm64")
-    else()
-        add_compile_definitions(__x86_64__)
-        set(CMAKE_OSX_ARCHITECTURES "x86_64")
-    endif()
+    # Architectures come from CMAKE_OSX_ARCHITECTURES (e.g. -DCMAKE_OSX_ARCHITECTURES=x86_64);
+    # left unset, the build targets the host. The release builds each slice separately and
+    # joins them with lipo (see ci/), because HDF5 is built per architecture.
 elseif(UNIX)
     # -m64 is an x86-only option; GCC rejects it outright on other
     # architectures, such as the aarch64 manylinux images.
@@ -55,7 +50,9 @@ endif()
 
 # Packages
 find_package(Threads REQUIRED)
-find_package(HDF5 REQUIRED COMPONENTS C CXX)
+# Only the HDF5 C API is used (MultiTrialStats). Release builds link a static HDF5
+# built by ci/build-hdf5.sh (pass -DHDF5_ROOT=<prefix> -DHDF5_USE_STATIC_LIBRARIES=ON).
+find_package(HDF5 REQUIRED COMPONENTS C)
 
 # Optional messaging dependency
 if(OPTION_TARGET_MESSAGING)
@@ -95,6 +92,21 @@ if(OPTION_USE_PARQUET)
 else()
     message(STATUS "Multi-trial output format: HDF5")
 endif()
+
+# Version string printed by the executable ("Stochastic simulation version ...").
+# Release builds pass -DGIT_DESCRIBE=vX.Y.Z; otherwise ask git.
+if(NOT DEFINED GIT_DESCRIBE OR GIT_DESCRIBE STREQUAL "")
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --match "v*" --always --dirty
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                OUTPUT_VARIABLE GIT_DESCRIBE OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
+    if(NOT GIT_DESCRIBE)
+        set(GIT_DESCRIBE "v${PROJECT_VERSION}")
+    endif()
+endif()
+message(STATUS "VCellStoch version string: ${GIT_DESCRIBE}")
 
 # Dependencies (vcell-expressionparser and vcell-messaging are git submodules)
 add_subdirectory(vcell-expressionparser)

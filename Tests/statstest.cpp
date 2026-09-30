@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include "Gibson.h"
+#include <hdf5.h>
+#include <vector>
 
 #define TEST_ASSERT(condition, message) \
     if (!(condition)) { \
@@ -147,6 +149,39 @@ bool test_statstest_test1() {
 
     TEST_LT(accumulatedError, 0.015, "Accumulated error");
     TEST_LT(maxIndividualError, 0.005, "Max individual error");
+
+    // The multi-trial statistics file VCell reads (<output>_hdf5): the layout, and its means
+    // must be the ones in the text output.
+    {
+        std::string h5name = outputFileName + "_hdf5";
+        hid_t file = H5Fopen(h5name.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        TEST_ASSERT(file >= 0, "open " + h5name);
+        const char* names[5] = { "SimTimes", "StatMean", "StatMin", "StatMax", "StatStdDev" };
+        for (const char* name : names) {
+            hid_t dset = H5Dopen2(file, name, H5P_DEFAULT);
+            TEST_ASSERT(dset >= 0, std::string("dataset ") + name);
+            hid_t space = H5Dget_space(dset);
+            hsize_t dims[2] = { 0, 0 };
+            int rank = H5Sget_simple_extent_dims(space, dims, NULL);
+            TEST_ASSERT(dims[0] == 1001, std::string(name) + " has 1001 time points");
+            TEST_ASSERT(rank == (std::string(name) == "SimTimes" ? 1 : 2), std::string(name) + " rank");
+            if (rank == 2) TEST_ASSERT(dims[1] == 3, std::string(name) + " has 3 variables");
+            if (std::string(name) == "StatMean") {
+                std::vector<double> mean(1001 * 3);
+                TEST_ASSERT(H5Dread(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, mean.data()) >= 0, "read StatMean");
+                for (auto const& r : results) {
+                    TEST_LT(std::abs(mean[r.first * 3] - r.second), 1e-6, "StatMean s0 = text output");
+                }
+            }
+            H5Sclose(space);
+            H5Dclose(dset);
+        }
+        hid_t vn = H5Dopen2(file, "VarNames", H5P_DEFAULT);
+        TEST_ASSERT(vn >= 0, "dataset VarNames");
+        H5Dclose(vn);
+        H5Fclose(file);
+        std::remove(h5name.c_str());
+    }
 
     delete gb;
     if (inputFileStream.is_open()) inputFileStream.close();

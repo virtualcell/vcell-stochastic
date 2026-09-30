@@ -79,3 +79,8 @@ dist/
 wheelhouse/
 *.egg-info/
 .pytest_cache/
+
+# release builds (ci/build.sh) and reference runs (Tests/reference/compare.py)
+build-release/
+stage/
+reference-run/

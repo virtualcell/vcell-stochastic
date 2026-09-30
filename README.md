@@ -6,6 +6,66 @@ This is a standalone version of the VCell Stochastic solver, extracted from the 
 
 The VCell Stochastic solver implements stochastic simulation algorithms (Gibson/Gillespie) for biochemical reaction networks.
 
+## Solver release contract (SOLVER-RELEASE)
+
+This repository follows VCell's solver release contract (VCell `docs/plan-solver-repos.md` §1), so
+VCell's desktop client and its HPC cluster can consume it by version.
+
+**Releases.** A tag `vX.Y.Z` on `main` runs `.github/workflows/release.yml`, which attaches:
+
+| asset | contents |
+|---|---|
+| `linux64.tgz` | x86_64, built on manylinux_2_28 (runs on glibc >= 2.28); depends only on glibc, `libstdc++` and `libgcc_s` from the host |
+| `linux64arm.tgz` | aarch64, the same |
+| `mac64.tgz` | universal (x86_64 + arm64), macOS >= 13.3, ad-hoc signed; depends only on `/usr/lib` system libraries |
+| `win64.zip` | x64, static MSVC runtime; depends only on Windows system DLLs |
+| `SHA256SUMS` | sha256 of each archive above |
+
+Each archive has, at its root, `VCellStoch_x64` (`VCellStoch_x64.exe` on Windows) — the name VCell
+resolves — plus `LICENSE`, `COPYING-HDF5` and `VERSION`. HDF5 (1.14.6, C library only) is linked
+**statically** into the executable (`ci/build-hdf5.sh`), so there are no HDF5 `.so`/`.dylib`/`.dll`
+files to bundle and nothing refers to Homebrew or vcpkg paths. The archives are built with messaging
+**off**: VCell's desktop client runs `VCellStoch_x64 gibson <in>.stochInput <out>` and reads the
+`[[[progress:...]]]` markers from stdout. Pull requests and pushes to `main` run the same builds and
+tests without publishing.
+
+**Container image and SIF.** `.github/workflows/container.yml` builds `docker/Dockerfile` for
+linux/amd64 and linux/arm64, with messaging **on** (`OPTION_TARGET_MESSAGING=ON`, libcurl), so a
+trailing `-tid <n>` reports status to VCell's broker:
+
+- `ghcr.io/virtualcell/vcell-stochastic:<X.Y.Z>` and `:latest` (multi-arch) on a `vX.Y.Z` tag;
+  `:sha-<short>` on every push to `main`;
+- `oras://ghcr.io/virtualcell/vcell-stochastic_singularity:<X.Y.Z>` (amd64), and `:latest` / `:sha-<short>`
+  alongside.
+
+The runtime stage is `almalinux:8-minimal` (the distro of the manylinux_2_28 build stage, so the
+system libcurl matches) plus `VCellStoch_x64` in `/usr/local/bin`.
+
+**Entrypoint** (`/usr/local/bin/vcell-solver-entrypoint`, `docker/entrypoint.sh`):
+
+- no argument or `--help`: prints the version and the executables provided (`VCellStoch_x64`), exit 0;
+- `VCellStoch_x64 ...`: `exec`s the solver, so exit codes and signals pass through;
+- anything else: usage on stderr, exit 2.
+
+It writes nothing, so it runs as any uid from a read-only SIF, e.g. as SlurmProxy writes it:
+
+    singularity run --containall --bind <dir>:/simdata vcell-stochastic_singularity_<X.Y.Z>.sif \
+        VCellStoch_x64 gibson /simdata/SimID_1_0_.stochInput /simdata/SimID_1_0_.ida -tid 0
+
+**Verification.** `Tests/reference/` holds five Gibson inputs (single trajectory with an output
+interval, "keep every" output, histogram, multi-trial statistics with its `_hdf5` file, and the
+analytic `statstest`) and the outputs of the legacy `vcell-solvers` v0.0.44-dev4 `VCellStoch_x64`
+(`legacy-v0.0.44-dev4-linux64/`). `Tests/reference/compare.py` runs a build on them and checks that
+the output matches the legacy files number for number (`--exact`; the seeds are fixed and the
+generator is `std::mt19937_64`), plus statistical checks against the legacy statistics and the
+closed-form answers. Every release build (all four platforms) and every image run it, the images
+through Docker as a non-root uid and through the SIF under `apptainer run --containall`, both with
+`-tid`; a messaging run must also deliver its `JOB_COMPLETED` event to a stand-in broker
+(`Tests/reference/fake_broker.py`).
+
+Python wheels (`publish-python-package.yml`) are released separately, under `python-v<version>` tags,
+so they never collide with the solver's `vX.Y.Z` tags.
+
 ## Project Structure
 
 The project is organized as follows:

@@ -75,8 +75,82 @@ void MultiTrialStats::writeOutput(std::string outfilename, vector<string> listOf
 #ifdef USE_HDF5
 #include <hdf5.h>
 
+// Writes <outfilename>_hdf5, the file VCell reads for multi-trial (non-histogram) runs
+// (SimulationData / MultiTrialNonspatialStochSimDataReader):
+//   VarNames   string[numVars]            variable-length strings
+//   SimTimes   double[numTimes]
+//   StatMean, StatMin, StatMax, StatStdDev   double[numTimes][numVars]
+// Same layout as the vcell-solvers implementation, without its variable-length stack
+// arrays (not portable, and large runs could overflow the stack).
 void MultiTrialStats::writeHDF5(string outfilename, vector<string> listOfVarNames){
-    // ... existing HDF5 implementation ...
+    string ofhdf5(outfilename);
+    ofhdf5.append("_hdf5");
+
+    const hsize_t numTimes = timeValues.size();
+    const hsize_t numVarNames = listOfVarNames.size();
+    bool ok = true;
+
+    hid_t file = H5Fcreate(ofhdf5.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+    if (file < 0) {
+        std::cerr << "Error creating HDF5 file " << ofhdf5 << std::endl;
+        return;
+    }
+
+    // variable names
+    {
+        hsize_t dims[1] = { numVarNames };
+        hid_t space = H5Screate_simple(1, dims, NULL);
+        hid_t strType = H5Tcopy(H5T_C_S1);
+        H5Tset_size(strType, H5T_VARIABLE);
+        hid_t dset = H5Dcreate2(file, "VarNames", strType, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        vector<const char*> chars;
+        chars.reserve(listOfVarNames.size());
+        for (const auto& name : listOfVarNames) {
+            chars.push_back(name.c_str());
+        }
+        ok = ok && dset >= 0 && H5Dwrite(dset, strType, H5S_ALL, H5S_ALL, H5P_DEFAULT, chars.data()) >= 0;
+        H5Dclose(dset);
+        H5Tclose(strType);
+        H5Sclose(space);
+    }
+
+    // time points
+    {
+        hsize_t dims[1] = { numTimes };
+        hid_t space = H5Screate_simple(1, dims, NULL);
+        hid_t dset = H5Dcreate2(file, "SimTimes", H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        ok = ok && dset >= 0 && H5Dwrite(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, timeValues.data()) >= 0;
+        H5Dclose(dset);
+        H5Sclose(space);
+    }
+
+    // statistics, row-major [time][var]; the variance is written as a standard deviation
+    {
+        hsize_t dims[2] = { numTimes, numVarNames };
+        hid_t space = H5Screate_simple(2, dims, NULL);
+        const char* statNames[4] = { "StatMean", "StatMin", "StatMax", "StatStdDev" };
+        const vector<vector<double> >* stats[4] = { &mean, &statMin, &statMax, &variance };
+        vector<double> buffer(numTimes * numVarNames);
+        for (int statIndex = 0; statIndex < 4; statIndex++) {
+            for (hsize_t t = 0; t < numTimes; ++t) {
+                for (hsize_t v = 0; v < numVarNames; ++v) {
+                    double value = (*stats[statIndex])[t][v];
+                    buffer[t * numVarNames + v] = (statIndex == 3) ? sqrt(value) : value;
+                }
+            }
+            hid_t dset = H5Dcreate2(file, statNames[statIndex], H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+            ok = ok && dset >= 0 && H5Dwrite(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer.data()) >= 0;
+            H5Dclose(dset);
+        }
+        H5Sclose(space);
+    }
+
+    if (H5Fclose(file) < 0) {
+        ok = false;
+    }
+    if (!ok) {
+        std::cerr << "Error writing HDF5 file " << ofhdf5 << std::endl;
+    }
 }
 #endif
 

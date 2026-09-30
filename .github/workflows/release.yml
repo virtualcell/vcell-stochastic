@@ -1,407 +1,325 @@
-name: Build and Release VCell Stochastic
+# Release archives for VCell's desktop client (the solver release contract, README
+# "Solver release contract" / VCell docs/plan-solver-repos.md §1):
+#
+#   linux64.tgz      x86_64, manylinux_2_28 (glibc >= 2.28), static HDF5, no bundled glibc
+#   linux64arm.tgz   aarch64, the same
+#   mac64.tgz        universal (x86_64 + arm64), static HDF5, no dylibs, ad-hoc signed
+#   win64.zip        x64, static HDF5 and static MSVC runtime
+#   SHA256SUMS       sha256 of each of the above
+#
+# Each archive holds, at its root: VCellStoch_x64[.exe], LICENSE, COPYING-HDF5, VERSION.
+# Every build runs the unit tests and the Gibson reference comparison against the legacy
+# vcell-solvers v0.0.44-dev4 results (Tests/reference/compare.py).
+#
+# Pull requests and pushes to main build and test only. A v* tag on main publishes the release.
+name: release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag name to create for the release (if not running on tag)'
-        required: false
-      release_name:
-        description: 'Release name'
-        required: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  HDF5_VERSION: "1.14.6"   # keep in step with ci/build-hdf5.sh
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: linux (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04, asset: linux64.tgz }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, asset: linux64arm.tgz }
+    runs-on: ${{ matrix.runner }}
+    # same dated image as pyproject.toml's cibuildwheel config and docker/Dockerfile
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}:2026.09.23-1
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Tools
+        run: |
+          git config --global --add safe.directory '*'
+          /opt/python/cp312-cp312/bin/pip install --no-cache-dir cmake ninja numpy h5py
+          echo /opt/python/cp312-cp312/bin >> "$GITHUB_PATH"
+
+      - name: Version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME}"; else v="$(git describe --tags --match 'v*' --always --dirty)"; fi
+          echo "VCELLSTOCH_VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Cache HDF5
+        id: hdf5
+        uses: actions/cache@v4
         with:
-          python-version: '3.12'
+          path: /opt/hdf5
+          key: hdf5-${{ env.HDF5_VERSION }}-manylinux_2_28-${{ matrix.arch }}-${{ hashFiles('ci/build-hdf5.sh') }}
 
-      - name: Export PYTHON_EXE (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          echo "PYTHON_EXE=$(python -c 'import sys; print(sys.executable)')" >> $GITHUB_ENV
+      - name: Build HDF5 (static)
+        if: steps.hdf5.outputs.cache-hit != 'true'
+        run: HDF5_WORK_DIR=/tmp/hdf5 ci/build-hdf5.sh /opt/hdf5
 
-      - name: Export PYTHON_EXE (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $py = & python -c "import sys; print(sys.executable)"
-          Add-Content -Path $env:GITHUB_ENV -Value "PYTHON_EXE=$py"
+      - name: Build and unit-test VCellStoch
+        run: ci/build.sh /opt/hdf5 stage
 
-      - name: Set up environment - Linux
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake libhdf5-dev libhdf5-serial-dev libhdf5-cpp-103-1t64 libcurl4-openssl-dev zip gcc-13 g++-13
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 --slave /usr/bin/g++ g++ /usr/bin/g++-13
-          pip install pybind11
-          echo "PYBIND11_CMAKE_DIR=$(python -c 'import pybind11; print(pybind11.get_cmake_dir())')" >> $GITHUB_ENV
-
-      - name: Set up environment - macOS
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew update
-          brew install cmake hdf5 zip
-          pip install pybind11
-          echo "PYBIND11_CMAKE_DIR=$(python -c 'import pybind11; print(pybind11.get_cmake_dir())')" >> $GITHUB_ENV
-
-      - name: Set up build environment (Windows) and install vcpkg
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          choco install -y 7zip
-          Write-Host "Cloning vcpkg into $env:RUNNER_TEMP\vcpkg"
-          git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
-          & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat"
-          $vcpkgExe = "$env:RUNNER_TEMP\vcpkg\vcpkg.exe"
-          
-          # Added [cpp] here so vcpkg builds the C++ headers your CMakeLists.txt needs
-          & $vcpkgExe install hdf5[core,cpp]:x64-windows pybind11:x64-windows
-          
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
-          
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg"
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_INSTALLED=$env:RUNNER_TEMP\vcpkg\installed"
-
-      - name: Configure (non-Windows) with Python bindings
-        if: matrix.os != 'windows-latest'
-        run: |
-          echo "Using Python executable: $PYTHON_EXE"
-          echo "Using pybind11 CMake dir: $PYBIND11_CMAKE_DIR"
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOPTION_BUILD_PYTHON_BINDINGS=ON \
-            -DPython3_EXECUTABLE="$PYTHON_EXE" \
-            -DPYTHON_EXECUTABLE="$PYTHON_EXE" \
-            -Dpybind11_DIR="$PYBIND11_CMAKE_DIR"
-            
-      - name: Configure (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $vcpkgRoot = $env:VCPKG_ROOT
-          $instPrefix = "$vcpkgRoot/installed/x64-windows" -replace '\\','/'
-          $vcpkgToolchain = "$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
-          $pybind11Dir = "$instPrefix/share/pybind11" -replace '\\','/'
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $vsPath) { throw 'Visual Studio with C++ tools not found' }
-          $vsDevCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
-          
-          # Force Python paths for the old-style find_package(PythonLibs) in your CMakeLists.txt.
-          # Derive the import-library name from the interpreter actually installed by
-          # actions/setup-python instead of hard-coding a version (was python310.lib).
-          $pyRoot = $env:pythonLocation -replace '\\','/'
-          $pyInclude = "$pyRoot/include"
-          $pyTag = & python -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')"
-          $pyLib = "$pyRoot/libs/python$pyTag.lib"
-          if (-not (Test-Path $pyLib)) { throw "Python import library not found: $pyLib" }
-          $pyExe = $env:PYTHON_EXE -replace '\\','/'
-
-          cmd /c "`"$vsDevCmd`" -arch=x64 && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=`"$vcpkgToolchain`" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_PREFIX_PATH=`"$instPrefix`" -DHDF5_ROOT=`"$instPrefix`" -DPython3_EXECUTABLE=`"$pyExe`" -DPYTHON_EXECUTABLE=`"$pyExe`" -DPYTHON_INCLUDE_DIR=`"$pyInclude`" -DPYTHON_LIBRARY=`"$pyLib`" -Dpybind11_DIR=`"$pybind11Dir`" -DOPTION_BUILD_PYTHON_BINDINGS=ON"
-
-          if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
-
-      - name: Build (non-Windows)
-        if: matrix.os != 'windows-latest'
-        run: |
-          cmake --build build --config Release -- -j$(nproc || sysctl -n hw.ncpu)
-
-      - name: Build (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $vsPath) { throw 'Visual Studio with C++ tools not found' }
-          $vsDevCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
-          cmd /c "`"$vsDevCmd`" -arch=x64 && cmake --build build --parallel"
-          if ($LASTEXITCODE -ne 0) { Write-Host "cmake build returned non-zero (continuing)" }
-
-      - name: Detect and build Python binding targets (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Check linkage (system libraries only)
         run: |
           set -eux
-          cmake --build build --target help > build-targets.txt 2>&1 || true
-          TARGETS=$(awk '/^[[:space:]]+[A-Za-z0-9_:-]+/ { sub(/^[[:space:]]+/,""); print $1 }' build-targets.txt | sort -u || true)
-          echo "Targets detected (excerpt):"
-          echo "$TARGETS" | sed -n '1,200p' || true
-          TOBUILD=""
-          for t in $TARGETS; do
-            lname=$(echo "$t" | tr '[:upper:]' '[:lower:]')
-            if echo "$lname" | grep -E 'python|pybind|pywrap|pyext|vcell|bindings' >/dev/null; then
-              TOBUILD="$TOBUILD $t"
-            fi
-          done
-          if [ -z "$TOBUILD" ]; then
-            echo "No python-like targets detected. Attempting common fallback list..."
-            FALLBACK="python python_bindings pybind VCellStochPython vcell_python vcellstoch_python bindings"
-            for f in $FALLBACK; do
-              if echo "$TARGETS" | grep -x "$f" >/dev/null; then
-                TOBUILD="$TOBUILD $f"
-              fi
-            done
-          fi
-          if [ -n "$TOBUILD" ]; then
-            echo "Building python-related targets: $TOBUILD"
-            for t in $TOBUILD; do
-              echo "Building target: $t"
-              cmake --build build --config Release --target "$t" -- -j$(nproc || sysctl -n hw.ncpu) || true
-            done
-          else
-            echo "No python targets to build."
+          ldd stage/VCellStoch_x64
+          if ldd stage/VCellStoch_x64 | grep -Ev 'linux-vdso|ld-linux|/lib64/(libc|libm|libpthread|libdl|librt|libstdc\+\+|libgcc_s)\.so'; then
+            echo "::error::unexpected shared library dependency"; exit 1
           fi
 
-      - name: Detect and build Python binding targets (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          # The Visual Studio generator does not support --target help.
-          # ALL_BUILD (already run in the Build step) compiles everything including
-          # pybind targets. Nothing to do here.
-          Write-Host "Visual Studio generator builds all targets via ALL_BUILD (already done). Skipping target detection."
+      - name: Gibson reference comparison (exact vs legacy linux64)
+        run: python Tests/reference/compare.py stage/VCellStoch_x64 --exact --work reference-run
 
-      - name: Install pytest and requirements (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest || true
-          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
-
-      - name: Install pytest and requirements (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          & python -m pip install --upgrade pip
-          & python -m pip install pytest
-          if ($LASTEXITCODE -ne 0) { Write-Host "pytest install failed (continuing)" }
-
-      - name: Run Python tests (Unix) - pytest if present otherwise import smoke test
-        if: matrix.os != 'windows-latest'
-        run: |
-          if [ -d Tests/python ]; then
-            python -m pytest Tests/python -q || true
-          else
-            printf '%s\n' "import sys, importlib, traceback" "sys.path.insert(0, 'build')" "try:" "    import VCellStoch" "    print('VCellStoch import OK')" "except Exception:" "    traceback.print_exc()" "    sys.exit(1)" > import_test.py
-            python import_test.py || true
-          fi
-
-      - name: Run Python tests (Windows) - pytest if present otherwise import smoke test
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          if (Test-Path Tests\python) {
-            & python -m pytest Tests\python -q
-            if ($LASTEXITCODE -ne 0) { Write-Host "pytest returned non-zero (continuing)" }
-          } else {
-            $lines = @(
-              "import sys, importlib, traceback"
-              "sys.path.insert(0, 'build')"
-              "try:"
-              "    import VCellStoch"
-              "    print('VCellStoch import OK')"
-              "except Exception:"
-              "    traceback.print_exc()"
-              "    sys.exit(1)"
-            )
-            $lines | Out-File -FilePath import_test.py -Encoding utf8
-            & python import_test.py
-            if ($LASTEXITCODE -ne 0) { Write-Host "import smoke test returned non-zero (continuing)" }
-          }
-
-      - name: Collect Python artifacts (Unix) — copy built extensions and wheels from build/dist
-        if: matrix.os != 'windows-latest'
+      - name: Package
         run: |
           set -eux
-          mkdir -p artifacts/python
-          if [ -d dist ]; then
-            find dist -type f -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
-            find dist -type f -not -name "*.whl" -exec cp '{}' artifacts/python/ \; || true
-          fi
-          find build -type f \( -iname "*.so" -o -iname "*.dylib" -o -iname "*.pyd" -o -iname "*.dll" \) -exec cp '{}' artifacts/python/ \; || true
-          cp python/src/vcellstochastic.py artifacts/python/
-          echo "Collected Python artifacts (Unix):"
-          ls -R artifacts/python || true
+          tar -C stage -czf "${{ matrix.asset }}" VCellStoch_x64 LICENSE COPYING-HDF5 VERSION
+          tar -tzvf "${{ matrix.asset }}"
 
-      - name: Collect Python artifacts (Windows) — copy built extensions and wheels from build/dist
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          New-Item -ItemType Directory -Path artifacts\python -Force | Out-Null
-          if (Test-Path dist) {
-            Get-ChildItem -Path dist -File -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue }
-          }
-          Get-ChildItem -Path build -Recurse -Include *.pyd,*.dll,*.so,*.dylib -File -ErrorAction SilentlyContinue | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination artifacts\python -Force -ErrorAction SilentlyContinue
-          }
-          Copy-Item -Path python\src\vcellstochastic.py -Destination artifacts\python -Force
-          Write-Host "Collected Python artifacts (Windows):"
-          if (Test-Path artifacts\python) { Get-ChildItem artifacts\python -Recurse -Force | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "No python artifacts found" }
-
-      - name: Collect build outputs (non-Windows)
-        if: matrix.os != 'windows-latest'
-        run: |
-          mkdir -p artifacts
-          if [ -d build/bin ]; then
-            cp -r build/bin artifacts/ || true
-          fi
-          if [ -d build/lib ]; then
-            cp -r build/lib artifacts/ || true
-          fi
-
-      - name: Collect build outputs (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          if (Test-Path build\bin) { Copy-Item -Path build\bin\* -Destination artifacts -Recurse -Force }
-          if (Test-Path build\lib) { Copy-Item -Path build\lib\* -Destination artifacts -Recurse -Force }
-
-      - name: Package artifacts (non-Windows)
-        if: matrix.os != 'windows-latest'
-        run: |
-          zip -r vcell-stoch-${{ matrix.os }}.zip artifacts -x "**/.git/**" || true
-
-      - name: Package artifacts (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $out = "vcell-stoch-${{ matrix.os }}.zip"
-          if (Test-Path artifacts) {
-            & 7z a -tzip $out artifacts\ | Out-Null
-          } else {
-            New-Item -Path $out -ItemType File | Out-Null
-          }
-
-      - name: Upload job artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: vcell-stoch-${{ matrix.os }}
-          path: |
-            vcell-stoch-${{ matrix.os }}.zip
-            artifacts
+          name: asset-${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
 
-      # Must stay last: an `if: failure()` step only fires once an earlier step has failed.
-      - name: Upload CMake logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cmake-error-logs-${{ matrix.os }}
-          path: |
-            build/CMakeFiles/CMakeError.log
-            build/CMakeFiles/CMakeOutput.log
-          if-no-files-found: ignore
-
-  create_release:
-    needs: build
-    runs-on: ubuntu-latest
+  mac-slice:
+    name: macOS slice (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: macos-15-intel }
+          - { arch: arm64, runner: macos-15 }
+    runs-on: ${{ matrix.runner }}
+    env:
+      # libc++'s std::format (used by vcell-messaging) needs macOS 13.3
+      MACOSX_DEPLOYMENT_TARGET: "13.3"
     steps:
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          name: vcell-stoch-ubuntu-latest
-          path: ./artifacts/linux
+          submodules: recursive
+          fetch-depth: 0
 
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: vcell-stoch-macos-latest
-          path: ./artifacts/macos
+          python-version: "3.12"
 
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vcell-stoch-windows-latest
-          path: ./artifacts/windows
+      - name: Tools
+        run: python -m pip install --no-cache-dir cmake ninja numpy h5py
 
-      - name: Determine tag
-        id: tag
+      - name: Version
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag_name=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME}"; else v="$(git describe --tags --match 'v*' --always --dirty)"; fi
+          echo "VCELLSTOCH_VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Cache HDF5
+        id: hdf5
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/hdf5
+          key: hdf5-${{ env.HDF5_VERSION }}-macos-${{ matrix.arch }}-${{ env.MACOSX_DEPLOYMENT_TARGET }}-${{ hashFiles('ci/build-hdf5.sh') }}
+
+      - name: Build HDF5 (static)
+        if: steps.hdf5.outputs.cache-hit != 'true'
+        run: HDF5_WORK_DIR="$RUNNER_TEMP/hdf5-src" ci/build-hdf5.sh "$RUNNER_TEMP/hdf5" -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+
+      - name: Build and unit-test VCellStoch
+        run: ci/build.sh "$RUNNER_TEMP/hdf5" stage -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+
+      - name: Gibson reference comparison (exact vs legacy)
+        run: python Tests/reference/compare.py stage/VCellStoch_x64 --exact --work reference-run
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-slice-${{ matrix.arch }}
+          path: stage/
+          if-no-files-found: error
+
+  mac:
+    name: macOS universal
+    needs: mac-slice
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-slice-arm64
+          path: slices/arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-slice-x86_64
+          path: slices/x86_64
+
+      - name: lipo + ad-hoc sign
+        run: |
+          set -eux
+          mkdir -p stage
+          lipo -create -output stage/VCellStoch_x64 slices/arm64/VCellStoch_x64 slices/x86_64/VCellStoch_x64
+          chmod 755 stage/VCellStoch_x64   # artifacts drop the mode bits
+          codesign --force --sign - stage/VCellStoch_x64
+          cp slices/arm64/LICENSE slices/arm64/COPYING-HDF5 slices/arm64/VERSION stage/
+          lipo -archs stage/VCellStoch_x64
+          test "$(lipo -archs stage/VCellStoch_x64)" = "x86_64 arm64"
+          codesign --verify --verbose stage/VCellStoch_x64
+          otool -L -arch all stage/VCellStoch_x64
+          # only the OS's own libraries: no Homebrew, no /usr/local, no bundled dylibs
+          if otool -L -arch all stage/VCellStoch_x64 | grep -E '^[[:space:]]' | grep -Ev '/usr/lib/|/System/Library/'; then
+            echo "::error::non-system dylib dependency"; exit 1
+          fi
+          otool -l stage/VCellStoch_x64 | grep -A3 LC_BUILD_VERSION | head -8
+
+      - name: Gibson reference comparison (arm64 slice, and x86_64 under Rosetta)
+        run: |
+          set -eux
+          python -m pip install --no-cache-dir numpy h5py
+          python Tests/reference/compare.py stage/VCellStoch_x64 --exact --work reference-run-arm64
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            python Tests/reference/compare.py "arch -x86_64 $PWD/stage/VCellStoch_x64" --exact --work reference-run-x86_64
           else
-            echo "tag_name=ci-$(date +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+            echo "::notice::Rosetta not available on this runner; the x86_64 slice was tested on its own runner"
           fi
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          tag_name: ${{ steps.tag.outputs.tag_name }}
-          release_name: ${{ github.event.inputs.release_name || steps.tag.outputs.tag_name }}
-          body: "Automated build artifacts for ${{ steps.tag.outputs.tag_name }}"
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload per-platform zip assets
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/linux/vcell-stoch-ubuntu-latest.zip
-          asset_name: vcell-stoch-ubuntu-latest.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload macOS zip asset
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/macos/vcell-stoch-macos-latest.zip
-          asset_name: vcell-stoch-macos-latest.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Windows zip asset
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/windows/vcell-stoch-windows-latest.zip
-          asset_name: vcell-stoch-windows-latest.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Python artifacts (wheels / modules) as individual release assets if present
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPLOAD_URL: ${{ steps.create_release.outputs.upload_url }}
+      - name: Package
         run: |
-          set -e
-          upload() {
-            local file="$1"
-            local fname
-            fname=$(basename "$file")
-            echo "Uploading $file as $fname"
-            base_upload_url="${UPLOAD_URL%\{*}"
-            curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/octet-stream" --data-binary @"$file" "$base_upload_url?name=$fname" || { echo "Upload failed for $file"; }
-          }
-          for f in ./artifacts/*/python/* ./artifacts/*/dist/* ./artifacts/*/*.whl; do
-            if [ -f "$f" ]; then
-              upload "$f"
-            fi
-          done || true
+          set -eux
+          tar -C stage -czf mac64.tgz VCellStoch_x64 LICENSE COPYING-HDF5 VERSION
+          tar -tzvf mac64.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asset-mac64.tgz
+          path: mac64.tgz
+          if-no-files-found: error
+
+  windows:
+    name: windows (x64)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Tools
+        run: |
+          python -m pip install --no-cache-dir cmake ninja numpy h5py
+          # Git for Windows' coreutils ship a `link` that would shadow MSVC's link.exe
+          rm -f /usr/bin/link
+
+      - name: Version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v="${GITHUB_REF_NAME}"; else v="$(git describe --tags --match 'v*' --always --dirty)"; fi
+          echo "VCELLSTOCH_VERSION=$v" >> "$GITHUB_ENV"
+          echo "HDF5_PREFIX=$(cygpath -m "$RUNNER_TEMP")/hdf5" >> "$GITHUB_ENV"
+
+      - name: Cache HDF5
+        id: hdf5
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.HDF5_PREFIX }}
+          key: hdf5-${{ env.HDF5_VERSION }}-win64-mt-${{ hashFiles('ci/build-hdf5.sh') }}
+
+      - name: Build HDF5 (static, static CRT)
+        if: steps.hdf5.outputs.cache-hit != 'true'
+        run: >-
+          HDF5_WORK_DIR="$(cygpath -m "$RUNNER_TEMP")/hdf5-src" ci/build-hdf5.sh "$HDF5_PREFIX"
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_STATIC_CRT_LIBS=ON
+
+      - name: Build and unit-test VCellStoch
+        run: >-
+          ci/build.sh "$HDF5_PREFIX" stage
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Check linkage (Windows system DLLs only)
+        shell: pwsh
+        run: |
+          $deps = & dumpbin /dependents stage\VCellStoch_x64.exe
+          $deps
+          $dlls = $deps | Where-Object { $_ -match '^\s+\S+\.dll\s*$' } | ForEach-Object { $_.Trim().ToLower() }
+          $bad = $dlls | Where-Object { $_ -notmatch '^(kernel32|user32|advapi32|shell32|shlwapi|ws2_32|wsock32|ole32|oleaut32|bcrypt|crypt32|ntdll|psapi|dbghelp|api-ms-win-.*)\.dll$' }
+          if ($bad) { Write-Error "unexpected DLL dependencies: $bad"; exit 1 }
+
+      - name: Gibson reference comparison (vs legacy)
+        run: python Tests/reference/compare.py stage/VCellStoch_x64.exe --exact --work reference-run
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path stage\VCellStoch_x64.exe, stage\LICENSE, stage\COPYING-HDF5, stage\VERSION -DestinationPath win64.zip
+          Get-ChildItem win64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asset-win64.zip
+          path: win64.zip
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, mac, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: asset-*
+          path: assets
+          merge-multiple: true
+
+      - name: SHA256SUMS
+        working-directory: assets
+        run: |
+          set -eux
+          ls -la
+          for a in linux64.tgz linux64arm.tgz mac64.tgz win64.zip; do test -s "$a"; done
+          sha256sum linux64.tgz linux64arm.tgz mac64.tgz win64.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        working-directory: assets
+        run: |
+          set -eux
+          notes="VCellStoch ${TAG} (Gibson next-reaction stochastic solver).
+
+          Assets follow VCell's solver release contract: \`VCellStoch_x64\` (\`.exe\` on Windows), LICENSE, COPYING-HDF5 and VERSION at each archive's root; HDF5 is linked statically.
+          The container image is \`ghcr.io/virtualcell/vcell-stochastic:${TAG#v}\` and the SIF \`oras://ghcr.io/virtualcell/vcell-stochastic_singularity:${TAG#v}\`."
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes "$notes" --verify-tag \
+            linux64.tgz linux64arm.tgz mac64.tgz win64.zip SHA256SUMS

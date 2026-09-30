@@ -123,8 +123,9 @@ jobs:
         if: github.event.inputs.version != ''
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ github.event.inputs.version }}
-          name: Release v${{ github.event.inputs.version }}
+          # python-v*: the solver's own releases use vX.Y.Z (release.yml)
+          tag_name: python-v${{ github.event.inputs.version }}
+          name: Python package v${{ github.event.inputs.version }}
           files: dist/*
           draft: false
           prerelease: false
